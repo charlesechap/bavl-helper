@@ -19,8 +19,11 @@ class AppViewModel: NSObject, ObservableObject {
 
     private var webView: WKWebView?
     private let sessionDateKey = "lastLoginDate"
-    // Session BAVL via portail web : ~48h, on renouvelle après 25h
     private let sessionDuration: TimeInterval = 25 * 3600
+
+    // MARK: - Retry
+    private var retryCount = 0
+    private let maxRetries = 2
 
     override init() {
         super.init()
@@ -38,22 +41,47 @@ class AppViewModel: NSObject, ObservableObject {
         set { KeychainHelper.save(newValue, forKey: "password") }
     }
 
-    // MARK: - Session check
+    // MARK: - Session check (amélioration 2 : vérification réelle)
     func checkExistingSession() {
-        guard let lastLogin = UserDefaults.standard.object(forKey: sessionDateKey) as? Date else {
-            login()
+        guard !cardNumber.isEmpty, !password.isEmpty else {
+            loginState = .idle
             return
         }
-        let elapsed = Date().timeIntervalSince(lastLogin)
-        if elapsed < sessionDuration {
-            let hoursLeft = Int((sessionDuration - elapsed) / 3600)
-            print("Session valide — expire dans ~\(hoursLeft)h")
-            loginState = .success
-        } else {
-            print("Session expiree — reconnexion automatique")
-            login()
+
+        // Vérification rapide via timestamp d'abord
+        if let lastLogin = UserDefaults.standard.object(forKey: sessionDateKey) as? Date {
+            let elapsed = Date().timeIntervalSince(lastLogin)
+            if elapsed < sessionDuration {
+                // Le timestamp suggère que la session est valide,
+                // mais on vérifie quand même en chargeant PressReader
+                appendLog("Vérification session...")
+                verifySessionLive()
+                return
+            }
         }
+
+        // Pas de timestamp ou session expirée → login direct
+        login()
     }
+
+    /// Charge PressReader silencieusement pour vérifier si la session est toujours active
+    private func verifySessionLive() {
+        teardownWebView()
+        loginState = .loading
+
+        let config = WKWebViewConfiguration()
+        config.websiteDataStore = .default()
+        let wv = makeWebView(config: config)
+        self.webView = wv
+
+        // Flag pour distinguer le mode vérification du mode login
+        isVerifyingSession = true
+
+        let url = URL(string: "https://www.pressreader.com/")!
+        wv.load(URLRequest(url: url))
+    }
+
+    private var isVerifyingSession = false
 
     private func markSessionStart() {
         UserDefaults.standard.set(Date(), forKey: sessionDateKey)
@@ -94,25 +122,10 @@ class AppViewModel: NSObject, ObservableObject {
         print(msg)
     }
 
-    // MARK: - Login
-    func login() {
-        guard !cardNumber.isEmpty, !password.isEmpty else {
-            loginState = .failure("Veuillez configurer vos identifiants dans les reglages.")
-            return
-        }
-
-        // FIX: nettoyer le WebView précédent avant d'en créer un nouveau
-        teardownWebView()
-
-        loginState = .loading
-        statusLog = []
-        appendLog("Connexion au portail BAVL...")
-
-        let config = WKWebViewConfiguration()
-        config.websiteDataStore = .default()
+    // MARK: - WebView factory
+    private func makeWebView(config: WKWebViewConfiguration) -> WKWebView {
         let wv = WKWebView(frame: CGRect(x: 0, y: 0, width: 390, height: 844), configuration: config)
         wv.navigationDelegate = self
-        // Attacher à la fenêtre pour que WebKit exécute les scripts JS
         if let window = UIApplication.shared.connectedScenes
             .compactMap({ $0 as? UIWindowScene })
             .first?.windows.first {
@@ -120,10 +133,49 @@ class AppViewModel: NSObject, ObservableObject {
             wv.isHidden = true
             wv.isUserInteractionEnabled = false
         }
+        return wv
+    }
+
+    // MARK: - Login
+    func login() {
+        guard !cardNumber.isEmpty, !password.isEmpty else {
+            loginState = .failure("Veuillez configurer vos identifiants dans les réglages.")
+            return
+        }
+
+        teardownWebView()
+        isVerifyingSession = false
+        retryCount = 0
+        loginState = .loading
+        statusLog = []
+        appendLog("Connexion au portail BAVL...")
+
+        startLoginFlow()
+    }
+
+    private func startLoginFlow() {
+        let config = WKWebViewConfiguration()
+        config.websiteDataStore = .default()
+        let wv = makeWebView(config: config)
         self.webView = wv
 
         let url = URL(string: "https://bavl.lausanne.ch/iguana/www.main.cls?surl=offre-numerique-pressreader")!
         wv.load(URLRequest(url: url))
+    }
+
+    // MARK: - Retry (amélioration 1)
+    private func retryLoginIfPossible(reason: String) {
+        if retryCount < maxRetries {
+            retryCount += 1
+            appendLog("Tentative \(retryCount)/\(maxRetries) — \(reason)")
+            teardownWebView()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                self.startLoginFlow()
+            }
+        } else {
+            loginState = .failure("Échec après \(maxRetries) tentatives : \(reason)")
+            teardownWebView()
+        }
     }
 
     // MARK: - Teardown WebView
@@ -134,10 +186,9 @@ class AppViewModel: NSObject, ObservableObject {
         webView = nil
     }
 
-    // MARK: - Etape 2 : navigation directe vers PressReader
+    // MARK: - Étape 2 : navigation vers PressReader
     private func performAccessScript() {
         guard let wv = webView else { return }
-        // On navigue directement plutôt que de cliquer (target="_blank" serait bloqué)
         let script = """
         (function() {
             var prLink = document.querySelector('a[href*="pressreader"]');
@@ -155,7 +206,7 @@ class AppViewModel: NSObject, ObservableObject {
         }
     }
 
-    // MARK: - Etape 1 : remplir et soumettre le formulaire
+    // MARK: - Étape 1 : remplir et soumettre le formulaire
     private func performLoginScript() {
         guard let wv = webView else { return }
         let card = cardNumber.replacingOccurrences(of: "\"", with: "\\\"")
@@ -193,27 +244,54 @@ class AppViewModel: NSObject, ObservableObject {
         })();
         """
 
-        wv.evaluateJavaScript(script) { result, error in
-            if let error = error { print("JS error login: \(error)") }
+        wv.evaluateJavaScript(script) { [weak self] result, error in
+            if let error = error {
+                print("JS error login: \(error)")
+            }
+            // Si le script retourne fields_not_found, on réessaie
+            if let result = result as? String, result == "fields_not_found" {
+                Task { @MainActor in
+                    self?.retryLoginIfPossible(reason: "formulaire introuvable")
+                }
+            }
         }
     }
 }
 
 // MARK: - WKNavigationDelegate
 extension AppViewModel: WKNavigationDelegate {
+
     nonisolated func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         Task { @MainActor in
             guard let url = webView.url?.absoluteString else { return }
-            print("Page chargee: \(url)")
+            print("Page chargée: \(url)")
 
+            // MODE VÉRIFICATION SESSION
+            if isVerifyingSession {
+                if url.contains("pressreader.com") && !url.contains("login") {
+                    // On est bien sur PressReader → session encore valide
+                    appendLog("Session active — accès direct.")
+                    loginState = .success
+                    teardownWebView()
+                } else {
+                    // Redirigé ailleurs → session expirée, on relance le login
+                    appendLog("Session expirée — reconnexion...")
+                    isVerifyingSession = false
+                    teardownWebView()
+                    login()
+                }
+                return
+            }
+
+            // MODE LOGIN NORMAL
             if url.contains("offre-numerique-pressreader-acces") {
                 appendLog("Auth réussie — ouverture PressReader...")
-                try? await Task.sleep(nanoseconds: 800_000_000)
+                // Pas de sleep : on réagit directement à didFinish
                 performAccessScript()
 
             } else if url.contains("offre-numerique-pressreader") {
                 appendLog("Formulaire détecté — saisie des identifiants...")
-                try? await Task.sleep(nanoseconds: 1_500_000_000)
+                // Pas de sleep : la page est chargée, on exécute le script
                 appendLog("Envoi des identifiants...")
                 performLoginScript()
 
@@ -221,11 +299,10 @@ extension AppViewModel: WKNavigationDelegate {
                 appendLog("Connecté ! Chargement des journaux...")
                 loginState = .success
                 markSessionStart()
-                // FIX: retirer le WebView de la hiérarchie proprement
                 teardownWebView()
 
             } else {
-                print("Page intermediaire: \(url)")
+                print("Page intermédiaire: \(url)")
             }
         }
     }
@@ -233,15 +310,23 @@ extension AppViewModel: WKNavigationDelegate {
     nonisolated func webView(_ webView: WKWebView,
                              decidePolicyFor navigationAction: WKNavigationAction,
                              decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
-        // FIX: suppression du dead code — toutes les URLs sont autorisées,
-        // la détection pressreader.com est gérée dans didFinish
         decisionHandler(.allow)
     }
 
     nonisolated func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
         Task { @MainActor in
-            loginState = .failure("Erreur reseau: \(error.localizedDescription)")
-            teardownWebView()
+            let nsError = error as NSError
+            // Ignorer les annulations volontaires (changement de page pendant navigation)
+            guard nsError.code != NSURLErrorCancelled else { return }
+            retryLoginIfPossible(reason: error.localizedDescription)
+        }
+    }
+
+    nonisolated func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
+        Task { @MainActor in
+            let nsError = error as NSError
+            guard nsError.code != NSURLErrorCancelled else { return }
+            retryLoginIfPossible(reason: error.localizedDescription)
         }
     }
 }
