@@ -97,7 +97,7 @@ struct PressReaderWebView: UIViewRepresentable {
                 if (isEmpty || notFound) {
                     window.webkit.messageHandlers.pageBlank.postMessage(window.location.href);
                 }
-            }, 3000);
+            }, 12000);
         }
 
     })();
@@ -636,4 +636,5 @@ private extension WKWebView {
     func goBackward() { goBack() }
     func goForward_() { goForward() }
 }
+
 
