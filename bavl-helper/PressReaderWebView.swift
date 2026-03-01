@@ -405,39 +405,43 @@ struct PressReaderSheet: View {
     }
 
     var body: some View {
-        ZStack(alignment: .top) {
-            Color.black.ignoresSafeArea()
+        GeometryReader { geo in
+            let safeTop = geo.safeAreaInsets.top
+            ZStack(alignment: .top) {
+                Color.bg.ignoresSafeArea()
 
-            // WebView plein écran, commence sous la barre custom
-            if let url = newspaper.archiveURL {
-                _PressReaderWebViewBridge(
-                    initialURL: url,
-                    pressReaderPath: newspaper.pressReaderPath,
-                    onCoordinatorReady: { coordinator = $0 },
-                    onURLChange: { currentURL = $0 }
+                // WebView plein écran, commence sous la barre custom
+                if let url = newspaper.archiveURL {
+                    _PressReaderWebViewBridge(
+                        initialURL: url,
+                        pressReaderPath: newspaper.pressReaderPath,
+                        onCoordinatorReady: { coordinator = $0 },
+                        onURLChange: { currentURL = $0 }
+                    )
+                    .ignoresSafeArea()
+                    .padding(.top, safeTop + 44)
+                } else {
+                    ContentUnavailableView("URL invalide", systemImage: "xmark.circle")
+                }
+
+                // Barre terminal custom
+                TerminalBar(
+                    safeAreaTop: safeTop,
+                    isOnArchive: isOnArchive,
+                    isOnJournal: isOnJournal,
+                    isOnArticle: isOnArticle,
+                    viewMode: viewMode,
+                    currentURL: currentURL,
+                    onDismiss: { dismiss() },
+                    onTxt: { coordinator?.goToTextView() },
+                    onPdf: { coordinator?.goToPDF() },
+                    onPrev: { coordinator?.goToPreviousArticle() },
+                    onNext: { coordinator?.goToNextArticle() },
+                    onArchive: { coordinator?.goToArchive() }
                 )
-                .ignoresSafeArea()
-                .padding(.top, 28) // hauteur de la barre custom
-            } else {
-                ContentUnavailableView("URL invalide", systemImage: "xmark.circle")
             }
-
-            // Barre custom ultra-fine
-            TerminalBar(
-                isOnArchive: isOnArchive,
-                isOnJournal: isOnJournal,
-                isOnArticle: isOnArticle,
-                viewMode: viewMode,
-                currentURL: currentURL,
-                onDismiss: { dismiss() },
-                onTxt: { coordinator?.goToTextView() },
-                onPdf: { coordinator?.goToPDF() },
-                onPrev: { coordinator?.goToPreviousArticle() },
-                onNext: { coordinator?.goToNextArticle() },
-                onArchive: { coordinator?.goToArchive() }
-            )
+            .ignoresSafeArea(edges: .top)
         }
-        .ignoresSafeArea(edges: .top)
         .preferredColorScheme(.dark)
     }
 }
@@ -457,8 +461,9 @@ private struct TerminalBar: View {
     let onNext: () -> Void
     let onArchive: () -> Void
 
-    // Police terminal, taille légèrement augmentée
-    private let termFont = Font.system(size: 14, weight: .regular, design: .monospaced)
+    var safeAreaTop: CGFloat = 0
+
+    // Police terminal
     private let dimColor = Color(white: 0.35)
     private let activeColor = Color(white: 0.82)
     private let inactiveColor = Color(white: 0.45)
@@ -503,29 +508,27 @@ private struct TerminalBar: View {
                         Text("↑")
                             .font(Font.system(size: 14, weight: .regular, design: .monospaced))
                             .foregroundStyle(activeColor)
-                            .frame(height: 28)
+                            .frame(height: 44)
                             .padding(.horizontal, 10)
                     }
                 }
             }
         }
-        .frame(height: 28)
-        .background(Color.black)
+        .frame(height: 44)
+        .background(Color.bg)
         .overlay(alignment: .bottom) {
             Rectangle()
                 .fill(Color(white: 0.18))
                 .frame(height: 0.5)
         }
-        .padding(.top, UIApplication.shared.connectedScenes
-            .compactMap { $0 as? UIWindowScene }
-            .first?.windows.first?.safeAreaInsets.top ?? 44)
+        .padding(.top, safeAreaTop)
     }
 
     private var separator: some View {
         Text("|")
             .font(Font.system(size: 12, weight: .ultraLight, design: .monospaced))
             .foregroundStyle(Color(white: 0.22))
-            .frame(height: 28)
+            .frame(height: 44)
     }
 }
 
@@ -545,7 +548,7 @@ private struct BarBtn: View {
             Text(label)
                 .font(Font.system(size: 14, weight: .regular, design: .monospaced))
                 .foregroundStyle(color)
-                .frame(height: 28)
+                .frame(height: 44)
                 .padding(.horizontal, 10)
                 .contentShape(Rectangle())
         }
