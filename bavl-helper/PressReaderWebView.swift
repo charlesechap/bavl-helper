@@ -360,6 +360,14 @@ struct PressReaderWebView: UIViewRepresentable {
             webView?.load(URLRequest(url: url))
         }
 
+        func goToJournal() {
+            let date = currentDate.isEmpty ? fallbackDate() : currentDate
+            guard let url = URL(string: "https://www.pressreader.com/\(pressReaderPath)/\(date)/textview")
+            else { return }
+            print("BAVL goToJournal ->", url.absoluteString)
+            DispatchQueue.main.async { self.webView?.load(URLRequest(url: url)) }
+        }
+
         func goToTextView() {
             // Si on est sur un article: {path}/{date}/{articleId}/textview
             // Sinon: {path}/{date}/textview
@@ -465,6 +473,7 @@ struct PressReaderSheet: View {
                     onPrev: { coordinator?.goToPreviousArticle() },
                     onNext: { coordinator?.goToNextArticle() },
                     onArchive: { coordinator?.goToArchive() },
+                    onJournal: { coordinator?.goToJournal() },
                     safeAreaTop: safeTop
                 )
             }
@@ -488,6 +497,7 @@ private struct TerminalBar: View {
     let onPrev: () -> Void
     let onNext: () -> Void
     let onArchive: () -> Void
+    let onJournal: () -> Void
 
     var safeAreaTop: CGFloat = 0
 
@@ -518,18 +528,11 @@ private struct TerminalBar: View {
             }
 
             if isOnArticle {
-                BarBtn("←", color: activeColor, action: onPrev)
-                separator
-                BarBtn("→", color: activeColor, action: onNext)
+                BarBtn("←", color: activeColor, action: onJournal)
                 if let url = currentURL {
                     separator
                     BarBtn("↑", color: activeColor, action: {
-                        let av = UIActivityViewController(activityItems: [url], applicationActivities: nil)
-                        if let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
-                           let root = scene.windows.first?.rootViewController {
-                            av.popoverPresentationController?.sourceView = root.view
-                            root.present(av, animated: true)
-                        }
+                        shareURL(url)
                     })
                 }
             }
@@ -543,6 +546,23 @@ private struct TerminalBar: View {
                 .frame(height: 0.5)
         }
         .padding(.top, safeAreaTop)
+    }
+
+    private func shareURL(_ url: URL) {
+        guard let scene = UIApplication.shared.connectedScenes
+            .compactMap({ $0 as? UIWindowScene })
+            .first(where: { $0.activationState == .foregroundActive }),
+              let window = scene.windows.first(where: { $0.isKeyWindow }),
+              let root = window.rootViewController
+        else { return }
+        // Remonter jusqu'au presented VC (sheet)
+        var presenter = root
+        while let p = presenter.presentedViewController { presenter = p }
+        let av = UIActivityViewController(activityItems: [url], applicationActivities: nil)
+        av.popoverPresentationController?.sourceView = presenter.view
+        av.popoverPresentationController?.sourceRect = CGRect(x: presenter.view.bounds.midX, y: 44, width: 0, height: 0)
+        av.popoverPresentationController?.permittedArrowDirections = .up
+        presenter.present(av, animated: true)
     }
 
     private var separator: some View {
