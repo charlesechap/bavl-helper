@@ -340,7 +340,8 @@ extension AppViewModel: WKNavigationDelegate {
                 loginState = .success
                 markSessionStart()
                 teardownWebView()
-                fetchLastEditionDates()
+                // fetchLastEditionDates désactivé: lastEditionDate reste nil
+                // => resolvedURL utilise la date du jour => PressReaderSheet passe par /archive => bearer token => API catalog
 
             } else {
                 print("Page intermédiaire: \(url)")
@@ -371,5 +372,6 @@ extension AppViewModel: WKNavigationDelegate {
         }
     }
 }
+
 
 
