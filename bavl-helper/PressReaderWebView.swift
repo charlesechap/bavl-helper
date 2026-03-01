@@ -274,32 +274,46 @@ struct PressReaderSheet: View {
             .toolbarColorScheme(.dark, for: .navigationBar)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
-                    Button("X") { dismiss() }
-                        .font(.system(.body, design: .monospaced))
-                        .foregroundStyle(Color.fgDim)
+                    Button(action: { dismiss() }) {
+                        Text("X")
+                            .font(.system(.body, design: .monospaced))
+                            .foregroundStyle(Color.fgDim)
+                    }
+                    .buttonStyle(.plain)
                 }
                 ToolbarItemGroup(placement: .topBarTrailing) {
                     if isOnArticle {
-                        Button("◁◁") { coordinator?.goToPreviousArticle() }
-                            .font(.system(.caption, design: .monospaced))
-                            .foregroundStyle(Color.fg)
-                        Button("▷▷") { coordinator?.goToNextArticle() }
-                            .font(.system(.caption, design: .monospaced))
-                            .foregroundStyle(Color.fg)
-                        Button("≡") { coordinator?.goToArchive() }
-                            .font(.system(.caption, design: .monospaced))
-                            .foregroundStyle(Color.fg)
+                        Button(action: { coordinator?.goToPreviousArticle() }) {
+                            Text("◁◁")
+                                .font(.system(.caption, design: .monospaced))
+                                .foregroundStyle(Color.fg)
+                        }
+                        .buttonStyle(.plain)
+                        Button(action: { coordinator?.goToNextArticle() }) {
+                            Text("▷▷")
+                                .font(.system(.caption, design: .monospaced))
+                                .foregroundStyle(Color.fg)
+                        }
+                        .buttonStyle(.plain)
+                        Button(action: { coordinator?.goToArchive() }) {
+                            Text("≡")
+                                .font(.system(.caption, design: .monospaced))
+                                .foregroundStyle(Color.fg)
+                        }
+                        .buttonStyle(.plain)
                         if let url = currentURL {
                             ShareLink(item: url) {
                                 Text("↑")
                                     .font(.system(.caption, design: .monospaced))
                                     .foregroundStyle(Color.fg)
                             }
+                            .buttonStyle(.plain)
                         }
                     }
                 }
             }
         }
+        .tint(.clear)
         .preferredColorScheme(.dark)
     }
 }
