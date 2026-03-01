@@ -9,12 +9,425 @@ private extension Color {
     static let fgFaint = Color(red: 0.30, green: 0.30, blue: 0.30)
 }
 
-// MARK: - PressReaderWebView
+// MARK: - Modèle édition
+
+struct PressReaderEdition: Identifiable {
+    let id: String        // issueId ex: "f1652026022800000051001001"
+    let date: String      // "20260301"
+    let formattedDate: String
+    let thumbnailURL: URL?
+
+    init(issueId: String, date: String) {
+        self.id = issueId
+        self.date = date
+
+        // Formater la date pour l'affichage
+        let inp = DateFormatter()
+        inp.dateFormat = "yyyyMMdd"
+        inp.locale = Locale(identifier: "fr_CH")
+        let out = DateFormatter()
+        out.dateStyle = .full
+        out.timeStyle = .none
+        out.locale = Locale(identifier: "fr_CH")
+        if let d = inp.date(from: date) {
+            self.formattedDate = out.string(from: d).capitalized
+        } else {
+            self.formattedDate = date
+        }
+
+        // URL miniature PressReader
+        self.thumbnailURL = URL(string: "https://i.prcdn.co/img?file=\(issueId)&page=1&width=150")
+    }
+}
+
+// MARK: - PressReaderSheet (racine)
+
+struct PressReaderSheet: View {
+    let newspaper: Newspaper
+    @Environment(\.dismiss) private var dismiss
+
+    // Navigation interne
+    @State private var showArchive = true          // commence par la liste archives
+    @State private var selectedEdition: PressReaderEdition? = nil
+
+    // État webview
+    @State private var currentURL: URL? = nil
+    @State private var coordinator: PressReaderWebView.Coordinator? = nil
+
+    // Archives
+    @State private var editions: [PressReaderEdition] = []
+    @State private var archiveLoading = true
+    @State private var archiveError: String? = nil
+    @State private var bearerToken: String? = nil
+
+    // Mode d'affichage courant détecté depuis l'URL
+    private var viewMode: ViewMode {
+        let s = currentURL?.absoluteString ?? ""
+        return s.contains("/textview") ? .text : .layout
+    }
+
+    private var isOnArticle: Bool {
+        let s = currentURL?.absoluteString ?? ""
+        return s.range(of: #"/[0-9]{8}/[0-9]{10,}"#, options: .regularExpression) != nil
+    }
+
+    private var isOnJournal: Bool {
+        let s = currentURL?.absoluteString ?? ""
+        let hasDate    = s.range(of: #"/[0-9]{8}"#, options: .regularExpression) != nil
+        let hasArticle = s.range(of: #"/[0-9]{8}/[0-9]{10,}"#, options: .regularExpression) != nil
+        return hasDate && !hasArticle
+    }
+
+    var body: some View {
+        GeometryReader { geo in
+            let safeTop = geo.safeAreaInsets.top
+            ZStack(alignment: .top) {
+                Color.bg.ignoresSafeArea()
+
+                if showArchive {
+                    // Vue archives native
+                    ArchiveListView(
+                        newspaper: newspaper,
+                        editions: editions,
+                        loading: archiveLoading,
+                        error: archiveError,
+                        safeTop: safeTop,
+                        onSelect: { edition in
+                            selectedEdition = edition
+                            showArchive = false
+                            // Charger l'URL selon le mode
+                            let urlStr: String
+                            switch newspaper.viewMode {
+                            case .text:
+                                urlStr = "https://www.pressreader.com/\(newspaper.pressReaderPath)/\(edition.date)/textview"
+                            case .layout:
+                                urlStr = "https://www.pressreader.com/\(newspaper.pressReaderPath)/\(edition.date)"
+                            }
+                            currentURL = URL(string: urlStr)
+                        },
+                        onDismiss: { dismiss() }
+                    )
+                } else {
+                    // Vue WebView
+                    if let url = currentURL {
+                        _PressReaderWebViewBridge(
+                            initialURL: url,
+                            pressReaderPath: newspaper.pressReaderPath,
+                            onCoordinatorReady: { coordinator = $0 },
+                            onURLChange: { currentURL = $0 }
+                        )
+                        .ignoresSafeArea()
+                        .padding(.top, safeTop + 44)
+                    }
+
+                    // Barre terminal
+                    TerminalBar(
+                        isOnJournal: isOnJournal,
+                        isOnArticle: isOnArticle,
+                        viewMode: viewMode,
+                        currentURL: currentURL,
+                        onBack: {
+                            if isOnArticle {
+                                coordinator?.goToJournal()
+                            } else {
+                                // retour aux archives
+                                showArchive = true
+                            }
+                        },
+                        onTxt: { coordinator?.goToTextView() },
+                        onPdf: { coordinator?.goToPDF() },
+                        onShare: {
+                            guard let coord = coordinator else { return }
+                            guard let scene = UIApplication.shared.connectedScenes
+                                .compactMap({ $0 as? UIWindowScene })
+                                .first(where: { $0.activationState == .foregroundActive }),
+                                  let window = scene.windows.first(where: { $0.isKeyWindow }),
+                                  let root = window.rootViewController
+                            else { return }
+                            var presenter = root
+                            while let p = presenter.presentedViewController { presenter = p }
+                            coord.sharePDF(presenter: presenter)
+                        },
+                        safeAreaTop: safeTop
+                    )
+                }
+            }
+            .ignoresSafeArea(edges: .top)
+        }
+        .preferredColorScheme(.dark)
+        .task { await loadArchives() }
+    }
+
+    // MARK: - Chargement archives
+
+    private func loadArchives() async {
+        archiveLoading = true
+        archiveError = nil
+
+        // 1. Obtenir le bearer token via une page archive PressReader
+        guard let archiveURL = URL(string: "https://www.pressreader.com/\(newspaper.pressReaderPath)/archive") else {
+            archiveError = "URL invalide"
+            archiveLoading = false
+            return
+        }
+
+        // On passe par le TokenLoader (WKWebView caché) pour obtenir le bearer token
+        let token = await TokenLoader.shared.fetchToken(for: archiveURL)
+        guard let token = token, !token.isEmpty else {
+            archiveError = "Impossible d'obtenir le token d'authentification"
+            archiveLoading = false
+            return
+        }
+        bearerToken = token
+
+        // 2. Appel API catalog
+        let cid = newspaper.pressReaderPath
+        guard let encoded = cid.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
+              let apiURL = URL(string: "https://ingress.pressreader.com/services/catalog/issues?cid=\(encoded)&count=30")
+        else {
+            archiveError = "Erreur URL API"
+            archiveLoading = false
+            return
+        }
+
+        var req = URLRequest(url: apiURL, timeoutInterval: 10)
+        req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        req.setValue("application/json", forHTTPHeaderField: "Accept")
+
+        do {
+            let (data, _) = try await URLSession.shared.data(for: req)
+            let parsed = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+            let issues = parsed?["Issues"] as? [[String: Any]] ?? []
+
+            var result: [PressReaderEdition] = []
+            for issue in issues {
+                guard let issueId = issue["Issue"] as? String, !issueId.isEmpty else { continue }
+                // Extraire la date depuis l'issueId ou le champ IssueDate
+                if let dateStr = extractDate(from: issue, issueId: issueId) {
+                    result.append(PressReaderEdition(issueId: issueId, date: dateStr))
+                }
+            }
+            editions = result
+            archiveLoading = false
+        } catch {
+            archiveError = error.localizedDescription
+            archiveLoading = false
+        }
+    }
+
+    private func extractDate(from issue: [String: Any], issueId: String) -> String? {
+        // Essayer le champ IssueDate ou IssueDateTime
+        for key in ["IssueDate", "IssueDateTime", "Date", "DateTime", "PublicationDate"] {
+            if let val = issue[key] as? String {
+                // Format attendu: peut être ISO ou yyyyMMdd
+                let cleaned = val.replacingOccurrences(of: "-", with: "").prefix(8)
+                if cleaned.count == 8, Int(cleaned) != nil { return String(cleaned) }
+                // Essayer ISO 8601
+                let iso = DateFormatter()
+                iso.dateFormat = "yyyy-MM-dd'T'HH:mm:ss"
+                if let d = iso.date(from: val) {
+                    let out = DateFormatter()
+                    out.dateFormat = "yyyyMMdd"
+                    return out.string(from: d)
+                }
+            }
+        }
+        // Extraire depuis l'issueId (pattern: les 8 chiffres de date dans l'ID)
+        let pattern = #"(\d{8})"#
+        if let regex = try? NSRegularExpression(pattern: pattern),
+           let match = regex.firstMatch(in: issueId, range: NSRange(issueId.startIndex..., in: issueId)),
+           let range = Range(match.range(at: 1), in: issueId) {
+            let candidate = String(issueId[range])
+            if candidate >= "20200101" && candidate <= "20301231" { return candidate }
+        }
+        return nil
+    }
+}
+
+// MARK: - TokenLoader (WKWebView caché pour obtenir le bearer token)
+
+@MainActor
+class TokenLoader: NSObject, WKNavigationDelegate, WKScriptMessageHandler {
+    static let shared = TokenLoader()
+
+    private var webView: WKWebView?
+    private var continuation: CheckedContinuation<String?, Never>?
+
+    func fetchToken(for url: URL) async -> String? {
+        return await withCheckedContinuation { cont in
+            self.continuation = cont
+
+            let config = WKWebViewConfiguration()
+            config.websiteDataStore = .default()
+            config.userContentController.add(self, name: "bearerToken")
+
+            let wv = WKWebView(frame: CGRect(x: 0, y: 0, width: 1, height: 1), configuration: config)
+            wv.navigationDelegate = self
+            self.webView = wv
+
+            // Attacher au UIWindow pour l'exécution JS
+            if let window = UIApplication.shared.connectedScenes
+                .compactMap({ $0 as? UIWindowScene }).first?.windows.first {
+                window.addSubview(wv)
+                wv.isHidden = true
+            }
+
+            wv.load(URLRequest(url: url))
+
+            // Timeout de sécurité
+            Task {
+                try? await Task.sleep(nanoseconds: 15_000_000_000)
+                self.resolveToken(nil)
+            }
+        }
+    }
+
+    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        let js = """
+        (function() {
+            var token = (window.preset && window.preset.bearerToken) ? window.preset.bearerToken : null;
+            if (token) {
+                window.webkit.messageHandlers.bearerToken.postMessage(token);
+            } else {
+                setTimeout(function() {
+                    var t2 = (window.preset && window.preset.bearerToken) ? window.preset.bearerToken : null;
+                    window.webkit.messageHandlers.bearerToken.postMessage(t2 || '');
+                }, 800);
+            }
+        })();
+        """
+        webView.evaluateJavaScript(js) { _, _ in }
+    }
+
+    func userContentController(_ userContentController: WKUserContentController,
+                               didReceive message: WKScriptMessage) {
+        guard message.name == "bearerToken" else { return }
+        let token = message.body as? String
+        resolveToken(token?.isEmpty == false ? token : nil)
+    }
+
+    private func resolveToken(_ token: String?) {
+        guard let cont = continuation else { return }
+        continuation = nil
+        webView?.removeFromSuperview()
+        webView = nil
+        cont.resume(returning: token)
+    }
+}
+
+// MARK: - ArchiveListView
+
+private struct ArchiveListView: View {
+    let newspaper: Newspaper
+    let editions: [PressReaderEdition]
+    let loading: Bool
+    let error: String?
+    let safeTop: CGFloat
+    let onSelect: (PressReaderEdition) -> Void
+    let onDismiss: () -> Void
+
+    var body: some View {
+        VStack(spacing: 0) {
+            // Barre terminal archive
+            HStack(spacing: 0) {
+                BarBtn("X", color: Color(white: 0.35), action: onDismiss)
+                    .padding(.leading, 8)
+                Spacer()
+                Text(newspaper.name.uppercased())
+                    .font(Font.system(.footnote, design: .monospaced))
+                    .foregroundStyle(Color(white: 0.45))
+                Spacer()
+                // Espace symétrique au X
+                Color.clear.frame(width: 44, height: 44)
+            }
+            .frame(height: 44)
+            .background(Color.bg)
+            .overlay(alignment: .bottom) {
+                Rectangle().fill(Color(white: 0.18)).frame(height: 0.5)
+            }
+            .padding(.top, safeTop)
+
+            if loading {
+                Spacer()
+                ProgressView()
+                    .tint(Color(white: 0.5))
+                Spacer()
+            } else if let error = error {
+                Spacer()
+                Text("Erreur : \(error)")
+                    .font(Font.system(.caption, design: .monospaced))
+                    .foregroundStyle(Color(white: 0.45))
+                    .padding()
+                Spacer()
+            } else {
+                ScrollView {
+                    LazyVStack(spacing: 0) {
+                        ForEach(editions) { edition in
+                            EditionRow(edition: edition)
+                                .contentShape(Rectangle())
+                                .onTapGesture { onSelect(edition) }
+                            Divider()
+                                .background(Color(white: 0.20))
+                        }
+                    }
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+// MARK: - EditionRow
+
+private struct EditionRow: View {
+    let edition: PressReaderEdition
+
+    var body: some View {
+        HStack(spacing: 12) {
+            // Miniature
+            AsyncImage(url: edition.thumbnailURL) { phase in
+                switch phase {
+                case .success(let img):
+                    img.resizable()
+                        .aspectRatio(contentMode: .fit)
+                        .frame(width: 60, height: 80)
+                        .clipped()
+                case .failure(_):
+                    Rectangle()
+                        .fill(Color(white: 0.20))
+                        .frame(width: 60, height: 80)
+                default:
+                    Rectangle()
+                        .fill(Color(white: 0.15))
+                        .frame(width: 60, height: 80)
+                        .overlay(ProgressView().tint(Color(white: 0.4)).scaleEffect(0.6))
+                }
+            }
+
+            // Date
+            Text(edition.formattedDate)
+                .font(Font.system(.body, design: .monospaced))
+                .foregroundStyle(Color(white: 0.80))
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+            // Chevron
+            Text("›")
+                .font(Font.system(.title3, design: .monospaced))
+                .foregroundStyle(Color(white: 0.30))
+                .padding(.trailing, 4)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 8)
+        .background(Color.bg)
+    }
+}
+
+// MARK: - PressReaderWebView (conservé pour UIViewRepresentable)
 
 struct PressReaderWebView: UIViewRepresentable {
 
     let initialURL: URL
-    let pressReaderPath: String  // ex: "switzerland/le-temps"
+    let pressReaderPath: String
 
     private static let injectedJS = """
     (function() {
@@ -58,24 +471,7 @@ struct PressReaderWebView: UIViewRepresentable {
 
         var path = window.location.pathname;
 
-        // 3. Sur /archive : extraire le bearer token et l'envoyer a Swift
-        if (path.indexOf('/archive') !== -1) {
-            var token = (window.preset && window.preset.bearerToken) ? window.preset.bearerToken : null;
-            if (token) {
-                window.webkit.messageHandlers.bearerToken.postMessage(token);
-            } else {
-                setTimeout(function() {
-                    var t2 = (window.preset && window.preset.bearerToken) ? window.preset.bearerToken : null;
-                    if (t2) {
-                        window.webkit.messageHandlers.bearerToken.postMessage(t2);
-                    } else {
-                        window.webkit.messageHandlers.bearerToken.postMessage('');
-                    }
-                }, 500);
-            }
-        }
-
-        // 4. Sur /textview : envoyer le titre et detecter page blanche
+        // 3. Sur /textview : envoyer le titre et detecter page blanche
         if (path.indexOf('/textview') !== -1) {
             function sendTitle() {
                 var title = document.title || '';
@@ -106,7 +502,6 @@ struct PressReaderWebView: UIViewRepresentable {
     func makeUIView(context: Context) -> WKWebView {
         let config = WKWebViewConfiguration()
         config.websiteDataStore = .default()
-        config.userContentController.add(context.coordinator, name: "bearerToken")
         config.userContentController.add(context.coordinator, name: "pageBlank")
         config.userContentController.add(context.coordinator, name: "pageTitle")
         let wv = WKWebView(frame: .zero, configuration: config)
@@ -135,7 +530,6 @@ struct PressReaderWebView: UIViewRepresentable {
                 DispatchQueue.main.async {
                     guard let self = self else { return }
                     self.onURLChange?(webView.url)
-                    // SPA navigation (pushState): mettre à jour currentDate
                     if let urlStr = webView.url?.absoluteString {
                         let dateRegex = try? NSRegularExpression(pattern: #"/(\d{8})/"#)
                         if let match = dateRegex?.firstMatch(in: urlStr, range: NSRange(urlStr.startIndex..., in: urlStr)),
@@ -154,7 +548,6 @@ struct PressReaderWebView: UIViewRepresentable {
             webView.evaluateJavaScript(PressReaderWebView.injectedJS) { _, err in
                 if let err = err { print("BAVL JS error:", err) }
             }
-            // Charger le TOC dès qu'on est sur une page PressReader
             if url.contains("pressreader.com") {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
                     self?.fetchTOCIfNeeded()
@@ -165,21 +558,8 @@ struct PressReaderWebView: UIViewRepresentable {
         func userContentController(_ userContentController: WKUserContentController,
                                    didReceive message: WKScriptMessage) {
             switch message.name {
-
-            case "bearerToken":
-                let token = message.body as? String ?? ""
-                print("BAVL bearerToken received, length:", token.count)
-                if token.isEmpty {
-                    loadFallbackDate()
-                } else {
-                    fetchLastEditionViaAPI(bearerToken: token)
-                }
-
             case "pageBlank":
-                guard let url = URL(string: "https://www.pressreader.com/\(pressReaderPath)/archive")
-                else { return }
-                print("BAVL pageBlank -> retour archive")
-                DispatchQueue.main.async { self.webView?.load(URLRequest(url: url)) }
+                print("BAVL pageBlank: page vide détectée")
 
             case "pageTitle":
                 let title = message.body as? String ?? ""
@@ -191,86 +571,19 @@ struct PressReaderWebView: UIViewRepresentable {
             }
         }
 
-        // MARK: - API
-
-        private func fetchLastEditionViaAPI(bearerToken: String) {
-            let cid = pressReaderPath
-            guard let encoded = cid.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
-                  let url = URL(string: "https://ingress.pressreader.com/services/catalog/issues?cid=\(encoded)&count=3")
-            else { loadFallbackDate(); return }
-
-            var request = URLRequest(url: url, timeoutInterval: 10)
-            request.setValue("Bearer \(bearerToken)", forHTTPHeaderField: "Authorization")
-            request.setValue("application/json", forHTTPHeaderField: "Accept")
-            print("BAVL API call ->", url.absoluteString)
-
-            URLSession.shared.dataTask(with: request) { [weak self] data, _, error in
-                guard let self = self else { return }
-                guard let data = data, error == nil else { self.loadFallbackDate(); return }
-                let raw = String(data: data, encoding: .utf8) ?? ""
-                print("BAVL API response (first 300):", String(raw.prefix(300)))
-                // Extraire issueId (ex: "f1652026022800000051001001") depuis la réponse
-                if let parsed = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                   let issues = parsed["Issues"] as? [[String: Any]],
-                   let first = issues.first,
-                   let issueId = first["Issue"] as? String, !issueId.isEmpty {
-                    print("BAVL issueId trouvé:", issueId)
-                    self.currentIssueId = issueId
-                    self.loadTOC(issueId: issueId)
-                }
-                if let date = self.extractLatestDate(from: raw) {
-                    print("BAVL API date trouvee:", date)
-                    self.navigateToTextView(date: date)
-                } else {
-                    self.loadFallbackDate()
-                }
-            }.resume()
-        }
-
-        private func extractLatestDate(from json: String) -> String? {
-            let pattern = "[^0-9]([0-9]{8})[^0-9]"
-            guard let regex = try? NSRegularExpression(pattern: pattern) else { return nil }
-            let padded = " \(json) "
-            let range = NSRange(padded.startIndex..., in: padded)
-            var dates: [String] = []
-            regex.enumerateMatches(in: padded, range: range) { match, _, _ in
-                guard let match = match, let r = Range(match.range(at: 1), in: padded) else { return }
-                let d = String(padded[r])
-                if d >= "20200101" && d <= "20301231" { dates.append(d) }
-            }
-            return dates.sorted().last
-        }
-
-        private func loadFallbackDate() {
-            let date = fallbackDate()
-            print("BAVL fallback date:", date)
-            navigateToTextView(date: date)
-        }
-
-        private func navigateToTextView(date: String) {
-            guard let url = URL(string: "https://www.pressreader.com/\(pressReaderPath)/\(date)/textview")
-            else { return }
-            DispatchQueue.main.async { self.webView?.load(URLRequest(url: url)) }
-        }
-
         // MARK: - TOC Navigation
 
         private var tocArticleIds: [Int64] = []
-        private var currentIssueId: String = ""   // ex: f1652026022800000051001001
-        private var currentDate: String = ""       // ex: 20260228
+        private var currentIssueId: String = ""
+        var currentDate: String = ""
 
-        /// Appel TOC depuis l'URL courante (appelé après chaque navigation)
         func fetchTOCIfNeeded() {
             guard let url = webView?.url?.absoluteString else { return }
-            // Extraire la date (8 chiffres) depuis l'URL directement
             let dateRegex = try? NSRegularExpression(pattern: "/(\\d{8})/")
             if let match = dateRegex?.firstMatch(in: url, range: NSRange(url.startIndex..., in: url)),
                let range = Range(match.range(at: 1), in: url) {
                 self.currentDate = String(url[range])
             }
-            // L'issue id est dans window.preset.cid (ex: f1652026022800000051001001)
-            // On utilise l'issueId construit depuis la date et le cid de la publication
-            // Chercher dans window.preset
             webView?.evaluateJavaScript("""
                 (function() {
                     var p = window.preset || {};
@@ -281,7 +594,7 @@ struct PressReaderWebView: UIViewRepresentable {
                 guard let self = self,
                       let issueId = result as? String, !issueId.isEmpty
                 else { return }
-                if issueId == self.currentIssueId { return }  // TOC déjà chargé
+                if issueId == self.currentIssueId { return }
                 self.currentIssueId = issueId
                 self.loadTOC(issueId: issueId)
             }
@@ -290,7 +603,6 @@ struct PressReaderWebView: UIViewRepresentable {
         private func loadTOC(issueId: String) {
             guard let url = URL(string: "https://s.prcdn.co/services/toc/?issue=\(issueId)&version=2&expungeVersion=")
             else { return }
-            print("BAVL TOC fetch ->", url.absoluteString)
             URLSession.shared.dataTask(with: URLRequest(url: url)) { [weak self] data, _, error in
                 guard let self = self, let data = data, error == nil else { return }
                 guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
@@ -315,9 +627,7 @@ struct PressReaderWebView: UIViewRepresentable {
 
         private func currentArticleId() -> Int64? {
             guard let path = webView?.url?.path else { return nil }
-            // path: /{pub}/{date}/{articleId}  ou  /{pub}/{date}/{articleId}/textview
             let components = path.split(separator: "/").map(String.init)
-            // chercher un composant numérique long (articleId) dans les composants
             for comp in components.reversed() {
                 if let id = Int64(comp), id > 100_000_000_000 { return id }
             }
@@ -328,37 +638,10 @@ struct PressReaderWebView: UIViewRepresentable {
             guard !pressReaderPath.isEmpty, !currentDate.isEmpty else { return }
             let urlStr = "https://www.pressreader.com/\(pressReaderPath)/\(currentDate)/\(articleId)/textview"
             guard let url = URL(string: urlStr) else { return }
-            print("BAVL navigate ->", urlStr)
             DispatchQueue.main.async { self.webView?.load(URLRequest(url: url)) }
         }
 
         // MARK: - Actions toolbar
-
-        func goToPreviousArticle() {
-            let current = currentArticleId()
-            print("BAVL prev: current=\(current as Any) toc=\(tocArticleIds.count) date=\(currentDate)")
-            guard let current = current,
-                  let idx = tocArticleIds.firstIndex(of: current),
-                  idx > 0
-            else { return }
-            navigate(to: tocArticleIds[idx - 1])
-        }
-
-        func goToNextArticle() {
-            let current = currentArticleId()
-            print("BAVL next: current=\(current as Any) toc=\(tocArticleIds.count) date=\(currentDate)")
-            guard let current = current,
-                  let idx = tocArticleIds.firstIndex(of: current),
-                  idx < tocArticleIds.count - 1
-            else { return }
-            navigate(to: tocArticleIds[idx + 1])
-        }
-
-        func goToArchive() {
-            guard let url = URL(string: "https://www.pressreader.com/\(pressReaderPath)/archive")
-            else { return }
-            webView?.load(URLRequest(url: url))
-        }
 
         func goToJournal() {
             let date = currentDate.isEmpty ? fallbackDate() : currentDate
@@ -375,7 +658,6 @@ struct PressReaderWebView: UIViewRepresentable {
                 DispatchQueue.main.async {
                     switch result {
                     case .success(let data):
-                        // Écrire dans un fichier temporaire nommé d'après le titre
                         let title = wv.title?.replacingOccurrences(of: "/", with: "-") ?? "article"
                         let filename = "\(title).pdf"
                         let tmp = FileManager.default.temporaryDirectory.appendingPathComponent(filename)
@@ -393,21 +675,19 @@ struct PressReaderWebView: UIViewRepresentable {
         }
 
         func goToTextView() {
-            // Si on est sur un article: {path}/{date}/{articleId}/textview
-            // Sinon: {path}/{date}/textview
             let date = currentDate.isEmpty ? fallbackDate() : currentDate
             if let articleId = currentArticleId() {
                 let urlStr = "https://www.pressreader.com/\(pressReaderPath)/\(date)/\(articleId)/textview"
                 guard let url = URL(string: urlStr) else { return }
                 DispatchQueue.main.async { self.webView?.load(URLRequest(url: url)) }
             } else {
-                navigateToTextView(date: date)
+                guard let url = URL(string: "https://www.pressreader.com/\(pressReaderPath)/\(date)/textview")
+                else { return }
+                DispatchQueue.main.async { self.webView?.load(URLRequest(url: url)) }
             }
         }
 
         func goToPDF() {
-            // Si on est sur un article: {path}/{date}/{articleId}  (layout sans /textview)
-            // Sinon: {path}/{date}
             let date = currentDate.isEmpty ? fallbackDate() : currentDate
             if let articleId = currentArticleId() {
                 let urlStr = "https://www.pressreader.com/\(pressReaderPath)/\(date)/\(articleId)"
@@ -432,132 +712,33 @@ struct PressReaderWebView: UIViewRepresentable {
     }
 }
 
-// MARK: - PressReaderSheet
-
-struct PressReaderSheet: View {
-    let newspaper: Newspaper
-    @Environment(\.dismiss) private var dismiss
-
-    @State private var currentURL: URL? = nil
-    @State private var coordinator: PressReaderWebView.Coordinator? = nil
-
-    // Mode d'affichage courant détecté depuis l'URL
-    private var viewMode: ViewMode {
-        let s = currentURL?.absoluteString ?? ""
-        return s.contains("/textview") ? .text : .layout
-    }
-
-    private var isOnArticle: Bool {
-        let s = currentURL?.absoluteString ?? ""
-        // article: date 8 chiffres suivi d'un ID numérique long (≥10 chiffres)
-        return s.range(of: #"/[0-9]{8}/[0-9]{10,}"#, options: .regularExpression) != nil
-    }
-
-    private var isOnJournal: Bool {
-        let s = currentURL?.absoluteString ?? ""
-        let hasDate = s.range(of: #"/[0-9]{8}"#, options: .regularExpression) != nil
-        let hasArticle = s.range(of: #"/[0-9]{8}/[0-9]{10,}"#, options: .regularExpression) != nil
-        return hasDate && !hasArticle
-    }
-
-    private var isOnArchive: Bool {
-        currentURL?.absoluteString.contains("/archive") == true
-    }
-
-    var body: some View {
-        GeometryReader { geo in
-            let safeTop = geo.safeAreaInsets.top
-            ZStack(alignment: .top) {
-                Color.bg.ignoresSafeArea()
-
-                // WebView plein écran, commence sous la barre custom
-                if let url = newspaper.archiveURL {
-                    _PressReaderWebViewBridge(
-                        initialURL: url,
-                        pressReaderPath: newspaper.pressReaderPath,
-                        onCoordinatorReady: { coordinator = $0 },
-                        onURLChange: { currentURL = $0 }
-                    )
-                    .ignoresSafeArea()
-                    .padding(.top, safeTop + 44)
-                } else {
-                    ContentUnavailableView("URL invalide", systemImage: "xmark.circle")
-                }
-
-                // Barre terminal custom
-                TerminalBar(
-                    isOnArchive: isOnArchive,
-                    isOnJournal: isOnJournal,
-                    isOnArticle: isOnArticle,
-                    viewMode: viewMode,
-                    currentURL: currentURL,
-                    onDismiss: { dismiss() },
-                    onTxt: { coordinator?.goToTextView() },
-                    onPdf: { coordinator?.goToPDF() },
-                    onPrev: { coordinator?.goToPreviousArticle() },
-                    onNext: { coordinator?.goToNextArticle() },
-                    onArchive: { coordinator?.goToArchive() },
-                    onJournal: { coordinator?.goToJournal() },
-                    onShare: {
-                        guard let coord = coordinator else { return }
-                        guard let scene = UIApplication.shared.connectedScenes
-                            .compactMap({ $0 as? UIWindowScene })
-                            .first(where: { $0.activationState == .foregroundActive }),
-                              let window = scene.windows.first(where: { $0.isKeyWindow }),
-                              let root = window.rootViewController
-                        else { return }
-                        var presenter = root
-                        while let p = presenter.presentedViewController { presenter = p }
-                        coord.sharePDF(presenter: presenter)
-                    },
-                    safeAreaTop: safeTop
-                )
-            }
-            .ignoresSafeArea(edges: .top)
-        }
-        .preferredColorScheme(.dark)
-    }
-}
-
 // MARK: - Barre terminal custom
 
 private struct TerminalBar: View {
-    let isOnArchive: Bool
     let isOnJournal: Bool
     let isOnArticle: Bool
     let viewMode: ViewMode
     let currentURL: URL?
-    let onDismiss: () -> Void
+    let onBack: () -> Void
     let onTxt: () -> Void
     let onPdf: () -> Void
-    let onPrev: () -> Void
-    let onNext: () -> Void
-    let onArchive: () -> Void
-    let onJournal: () -> Void
     let onShare: () -> Void
 
     var safeAreaTop: CGFloat = 0
 
-    // Police terminal
-    private let dimColor = Color(white: 0.35)
-    private let activeColor = Color(white: 0.82)
+    private let dimColor      = Color(white: 0.35)
+    private let activeColor   = Color(white: 0.82)
     private let inactiveColor = Color(white: 0.45)
 
     var body: some View {
         HStack(spacing: 0) {
-            // X à gauche
-            BarBtn("X", color: dimColor, action: onDismiss)
+            // X / ‹ à gauche (contextuel)
+            BarBtn(isOnArticle ? "‹" : "X", color: dimColor, action: onBack)
                 .padding(.leading, 8)
 
             Spacer()
 
             // Boutons contextuels à droite
-            if isOnArchive {
-                BarBtn("txt", color: activeColor, action: onTxt)
-                separator
-                BarBtn("pdf", color: activeColor, action: onPdf)
-            }
-
             if isOnJournal {
                 BarBtn("txt", color: viewMode == .text ? activeColor : inactiveColor, action: onTxt)
                 separator
@@ -565,9 +746,8 @@ private struct TerminalBar: View {
             }
 
             if isOnArticle {
-                BarBtn("↩", color: activeColor, action: onJournal)
-                separator
                 BarBtn("↑", color: activeColor, action: onShare)
+                    .padding(.trailing, 4)
             }
         }
         .padding(.trailing, 8)
@@ -613,7 +793,7 @@ private struct BarBtn: View {
     }
 }
 
-// MARK: - Bridge UIViewRepresentable pour exposer le coordinator
+// MARK: - Bridge UIViewRepresentable
 
 private struct _PressReaderWebViewBridge: UIViewRepresentable {
     let initialURL: URL
@@ -624,7 +804,6 @@ private struct _PressReaderWebViewBridge: UIViewRepresentable {
     func makeUIView(context: Context) -> WKWebView {
         let config = WKWebViewConfiguration()
         config.websiteDataStore = .default()
-        config.userContentController.add(context.coordinator, name: "bearerToken")
         config.userContentController.add(context.coordinator, name: "pageBlank")
         config.userContentController.add(context.coordinator, name: "pageTitle")
         let wv = WKWebView(frame: .zero, configuration: config)
@@ -634,7 +813,6 @@ private struct _PressReaderWebViewBridge: UIViewRepresentable {
         context.coordinator.pressReaderPath = pressReaderPath
         context.coordinator.onURLChange = onURLChange
         wv.load(URLRequest(url: initialURL))
-        // Observer les changements d'URL (navigation SPA sans didFinish)
         context.coordinator.startObservingURL(wv)
         DispatchQueue.main.async { self.onCoordinatorReady(context.coordinator) }
         return wv
@@ -645,10 +823,4 @@ private struct _PressReaderWebViewBridge: UIViewRepresentable {
     func makeCoordinator() -> PressReaderWebView.Coordinator {
         PressReaderWebView.Coordinator()
     }
-}
-
-// Extension pour navigation avant/arrière
-private extension WKWebView {
-    func goBackward() { goBack() }
-    func goForward_() { goForward() }
 }

@@ -109,9 +109,8 @@ struct ContentView: View {
             .sheet(isPresented: $showSettings) {
                 SettingsView(vm: vm)
             }
-            .sheet(item: $selectedNewspaper) { paper in
+            .fullScreenCover(item: $selectedNewspaper) { paper in
                 PressReaderSheet(newspaper: paper)
-                    .presentationCornerRadius(0)
             }
             .onAppear {
                 if vm.cardNumber.isEmpty || vm.password.isEmpty {
