@@ -280,18 +280,18 @@ struct PressReaderSheet: View {
                 }
                 ToolbarItemGroup(placement: .topBarTrailing) {
                     if isOnArticle {
-                        Button("[◁◁]") { coordinator?.goToPreviousArticle() }
+                        Button("◁◁") { coordinator?.goToPreviousArticle() }
                             .font(.system(.caption, design: .monospaced))
                             .foregroundStyle(Color.fg)
-                        Button("[▷▷]") { coordinator?.goToNextArticle() }
+                        Button("▷▷") { coordinator?.goToNextArticle() }
                             .font(.system(.caption, design: .monospaced))
                             .foregroundStyle(Color.fg)
-                        Button("[≡]") { coordinator?.goToArchive() }
+                        Button("≡") { coordinator?.goToArchive() }
                             .font(.system(.caption, design: .monospaced))
                             .foregroundStyle(Color.fg)
                         if let url = currentURL {
                             ShareLink(item: url) {
-                                Text("[↑]")
+                                Text("↑")
                                     .font(.system(.caption, design: .monospaced))
                                     .foregroundStyle(Color.fg)
                             }
