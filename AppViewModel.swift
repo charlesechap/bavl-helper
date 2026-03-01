@@ -100,6 +100,10 @@ class AppViewModel: NSObject, ObservableObject {
             loginState = .failure("Veuillez configurer vos identifiants dans les reglages.")
             return
         }
+
+        // FIX: nettoyer le WebView précédent avant d'en créer un nouveau
+        teardownWebView()
+
         loginState = .loading
         statusLog = []
         appendLog("Connexion au portail BAVL...")
@@ -120,6 +124,14 @@ class AppViewModel: NSObject, ObservableObject {
 
         let url = URL(string: "https://bavl.lausanne.ch/iguana/www.main.cls?surl=offre-numerique-pressreader")!
         wv.load(URLRequest(url: url))
+    }
+
+    // MARK: - Teardown WebView
+    private func teardownWebView() {
+        webView?.navigationDelegate = nil
+        webView?.stopLoading()
+        webView?.removeFromSuperview()
+        webView = nil
     }
 
     // MARK: - Etape 2 : navigation directe vers PressReader
@@ -209,7 +221,8 @@ extension AppViewModel: WKNavigationDelegate {
                 appendLog("Connecté ! Chargement des journaux...")
                 loginState = .success
                 markSessionStart()
-                self.webView = nil
+                // FIX: retirer le WebView de la hiérarchie proprement
+                teardownWebView()
 
             } else {
                 print("Page intermediaire: \(url)")
@@ -217,22 +230,18 @@ extension AppViewModel: WKNavigationDelegate {
         }
     }
 
-    @MainActor func webView(_ webView: WKWebView,
-                              decidePolicyFor navigationAction: WKNavigationAction,
-                              decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
-        let url = navigationAction.request.url?.absoluteString ?? ""
-        if url.contains("pressreader.com") {
-            print("PressReader intercepté: \(url)")
-            // Autoriser la navigation — didFinish détectera pressreader.com
-            decisionHandler(.allow)
-            return
-        }
+    nonisolated func webView(_ webView: WKWebView,
+                             decidePolicyFor navigationAction: WKNavigationAction,
+                             decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
+        // FIX: suppression du dead code — toutes les URLs sont autorisées,
+        // la détection pressreader.com est gérée dans didFinish
         decisionHandler(.allow)
     }
 
     nonisolated func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
         Task { @MainActor in
             loginState = .failure("Erreur reseau: \(error.localizedDescription)")
+            teardownWebView()
         }
     }
 }
