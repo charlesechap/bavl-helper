@@ -133,6 +133,12 @@ struct PressReaderWebView: UIViewRepresentable {
             webView.evaluateJavaScript(PressReaderWebView.injectedJS) { _, err in
                 if let err = err { print("BAVL JS error:", err) }
             }
+            // Charger le TOC dès qu'on est sur une page PressReader
+            if url.contains("pressreader.com") {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+                    self?.fetchTOCIfNeeded()
+                }
+            }
         }
 
         func userContentController(_ userContentController: WKUserContentController,
@@ -223,14 +229,100 @@ struct PressReaderWebView: UIViewRepresentable {
             DispatchQueue.main.async { self.webView?.load(URLRequest(url: url)) }
         }
 
+        // MARK: - TOC Navigation
+
+        private var tocArticleIds: [Int64] = []
+        private var currentIssueId: String = ""   // ex: f1652026022800000051001001
+        private var currentDate: String = ""       // ex: 20260228
+
+        /// Appel TOC depuis l'URL courante (appelé après chaque navigation)
+        func fetchTOCIfNeeded() {
+            guard let url = webView?.url?.absoluteString else { return }
+            // Extraire la date (8 chiffres) depuis l'URL directement
+            let dateRegex = try? NSRegularExpression(pattern: "/(\\d{8})/")
+            if let match = dateRegex?.firstMatch(in: url, range: NSRange(url.startIndex..., in: url)),
+               let range = Range(match.range(at: 1), in: url) {
+                self.currentDate = String(url[range])
+            }
+            // L'issue id est dans window.preset.cid (ex: f1652026022800000051001001)
+            // On utilise l'issueId construit depuis la date et le cid de la publication
+            // Chercher dans window.preset
+            webView?.evaluateJavaScript("""
+                (function() {
+                    var p = window.preset || {};
+                    var issueId = p.issueId || p.issue || (p.cid ? p.cid : '');
+                    return issueId;
+                })();
+            """) { [weak self] result, _ in
+                guard let self = self,
+                      let issueId = result as? String, !issueId.isEmpty
+                else { return }
+                if issueId == self.currentIssueId { return }  // TOC déjà chargé
+                self.currentIssueId = issueId
+                self.loadTOC(issueId: issueId)
+            }
+        }
+
+        private func loadTOC(issueId: String) {
+            guard let url = URL(string: "https://s.prcdn.co/services/toc/?issue=\(issueId)&version=2&expungeVersion=")
+            else { return }
+            print("BAVL TOC fetch ->", url.absoluteString)
+            URLSession.shared.dataTask(with: URLRequest(url: url)) { [weak self] data, _, error in
+                guard let self = self, let data = data, error == nil else { return }
+                guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                      let pages = root["Pages"] as? [[String: Any]]
+                else { return }
+                var ids: [Int64] = []
+                for page in pages {
+                    if let articles = page["Articles"] as? [[String: Any]] {
+                        for art in articles {
+                            if let idNum = art["Id"] as? Int64 {
+                                ids.append(idNum)
+                            } else if let idDouble = art["Id"] as? Double {
+                                ids.append(Int64(idDouble))
+                            }
+                        }
+                    }
+                }
+                print("BAVL TOC loaded: \(ids.count) articles")
+                DispatchQueue.main.async { self.tocArticleIds = ids }
+            }.resume()
+        }
+
+        private func currentArticleId() -> Int64? {
+            guard let path = webView?.url?.path else { return nil }
+            // path: /switzerland/le-temps/20260228/281530822504009  ou /textview
+            let components = path.split(separator: "/")
+            if let last = components.last, let id = Int64(last), id > 1_000_000_000_000 {
+                return id
+            }
+            return nil
+        }
+
+        private func navigate(to articleId: Int64) {
+            guard !pressReaderPath.isEmpty, !currentDate.isEmpty else { return }
+            let urlStr = "https://www.pressreader.com/\(pressReaderPath)/\(currentDate)/\(articleId)/textview"
+            guard let url = URL(string: urlStr) else { return }
+            print("BAVL navigate ->", urlStr)
+            DispatchQueue.main.async { self.webView?.load(URLRequest(url: url)) }
+        }
+
         // MARK: - Actions toolbar
 
         func goToPreviousArticle() {
-            webView?.goBack()
+            guard let current = currentArticleId(),
+                  let idx = tocArticleIds.firstIndex(of: current),
+                  idx > 0
+            else { return }
+            navigate(to: tocArticleIds[idx - 1])
         }
 
         func goToNextArticle() {
-            webView?.goForward()
+            guard let current = currentArticleId(),
+                  let idx = tocArticleIds.firstIndex(of: current),
+                  idx < tocArticleIds.count - 1
+            else { return }
+            navigate(to: tocArticleIds[idx + 1])
         }
 
         func goToArchive() {
