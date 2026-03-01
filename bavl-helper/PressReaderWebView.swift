@@ -432,7 +432,7 @@ struct PressReaderWebView: UIViewRepresentable {
     private static let injectedJS = """
     (function() {
 
-        // 1. Masquer la navbar PressReader
+        // 1. Masquer la navbar PressReader + popups contextuels
         if (!document.getElementById('__bavl_style')) {
             var s = document.createElement('style');
             s.id = '__bavl_style';
@@ -444,30 +444,34 @@ struct PressReaderWebView: UIViewRepresentable {
                 body, #root, .app-container { padding-top: 0 !important; margin-top: 0 !important; }
                 /* masquer footer PressReader (art-vote + art-tools-tiny) */
                 .art-vote, .art-tools-tiny { display: none !important; }
+                /* masquer popup contextuel article (.pop, .pop-default) */
+                .pop, .pop-default, [role="dialog"].pop { display: none !important; }
             `;
             (document.head || document.documentElement).appendChild(s);
         }
 
-        // 2. Fermer le popup "Bienvenue"
+        // 2. Fermer le popup "Bienvenue" + observer pour popups dynamiques
         function dismissPopup() {
+            var dismissed = false;
+            // Popup bienvenue
             var sel = ['button[aria-label="Close"]','button[aria-label="Fermer"]',
                        'button.welcome-dialog__close','.modal-close','[data-testid="welcome-dismiss"]'];
             for (var i = 0; i < sel.length; i++) {
                 var b = document.querySelector(sel[i]);
-                if (b) { b.click(); return true; }
+                if (b) { b.click(); dismissed = true; }
             }
-            var btns = document.querySelectorAll('button');
-            for (var j = 0; j < btns.length; j++) {
-                var t = (btns[j].innerText || '').toLowerCase().trim();
-                if (t === 'close' || t === 'fermer' || t === 'x') { btns[j].click(); return true; }
-            }
-            return false;
+            // Popup contextuel article (menu options)
+            var popups = document.querySelectorAll('.pop, .pop-default, [role="dialog"]');
+            popups.forEach(function(p) {
+                var closeBtn = p.querySelector('button.toolbar-btn, button[class*="close"], button[class*="Close"]');
+                if (closeBtn) { closeBtn.click(); dismissed = true; }
+                else { p.style.display = 'none'; dismissed = true; }
+            });
+            return dismissed;
         }
-        if (!dismissPopup()) {
-            var pObs = new MutationObserver(function(_, o) { if (dismissPopup()) o.disconnect(); });
-            pObs.observe(document.documentElement, {childList:true, subtree:true});
-            setTimeout(function() { pObs.disconnect(); }, 10000);
-        }
+        dismissPopup();
+        var pObs = new MutationObserver(function() { dismissPopup(); });
+        pObs.observe(document.documentElement, {childList:true, subtree:true});
 
         var path = window.location.pathname;
 
