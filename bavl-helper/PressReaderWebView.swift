@@ -24,10 +24,16 @@ struct PressReaderWebView: UIViewRepresentable {
             var s = document.createElement('style');
             s.id = '__bavl_style';
             s.textContent = `
+                /* masquer header */
                 .header, .site-header, nav.navbar, [class*="header"],
                 [class*="Header"], [class*="nav-bar"], [class*="NavBar"],
                 [class*="top-bar"], [class*="TopBar"] { display: none !important; }
                 body, #root, .app-container { padding-top: 0 !important; margin-top: 0 !important; }
+                /* masquer footer PressReader */
+                .footer, .site-footer, footer, [class*="footer"],
+                [class*="Footer"], [class*="bottom-bar"], [class*="BottomBar"],
+                [class*="article-footer"], [class*="ArticleFooter"],
+                .reader-footer, .text-footer, .content-footer { display: none !important; }
             `;
             (document.head || document.documentElement).appendChild(s);
         }
@@ -326,17 +332,31 @@ struct PressReaderWebView: UIViewRepresentable {
         }
 
         func goToTextView() {
-            // Aller sur la textview du numéro courant (date déjà connue ou fallback)
+            // Si on est sur un article: {path}/{date}/{articleId}/textview
+            // Sinon: {path}/{date}/textview
             let date = currentDate.isEmpty ? fallbackDate() : currentDate
-            navigateToTextView(date: date)
+            if let articleId = currentArticleId() {
+                let urlStr = "https://www.pressreader.com/\(pressReaderPath)/\(date)/\(articleId)/textview"
+                guard let url = URL(string: urlStr) else { return }
+                DispatchQueue.main.async { self.webView?.load(URLRequest(url: url)) }
+            } else {
+                navigateToTextView(date: date)
+            }
         }
 
         func goToPDF() {
-            // URL PDF PressReader: /pressreader.com/{path}/{date}/pdf
+            // Si on est sur un article: {path}/{date}/{articleId}  (layout sans /textview)
+            // Sinon: {path}/{date}
             let date = currentDate.isEmpty ? fallbackDate() : currentDate
-            guard let url = URL(string: "https://www.pressreader.com/\(pressReaderPath)/\(date)/pdf")
-            else { return }
-            DispatchQueue.main.async { self.webView?.load(URLRequest(url: url)) }
+            if let articleId = currentArticleId() {
+                let urlStr = "https://www.pressreader.com/\(pressReaderPath)/\(date)/\(articleId)"
+                guard let url = URL(string: urlStr) else { return }
+                DispatchQueue.main.async { self.webView?.load(URLRequest(url: url)) }
+            } else {
+                guard let url = URL(string: "https://www.pressreader.com/\(pressReaderPath)/\(date)")
+                else { return }
+                DispatchQueue.main.async { self.webView?.load(URLRequest(url: url)) }
+            }
         }
 
         private func fallbackDate() -> String {
@@ -360,83 +380,176 @@ struct PressReaderSheet: View {
     @State private var currentURL: URL? = nil
     @State private var coordinator: PressReaderWebView.Coordinator? = nil
 
+    // Mode d'affichage courant détecté depuis l'URL
+    private var viewMode: ViewMode {
+        let s = currentURL?.absoluteString ?? ""
+        return s.contains("/textview") ? .text : .layout
+    }
+
     private var isOnArticle: Bool {
         let s = currentURL?.absoluteString ?? ""
-        return s.contains("/textview") || s.contains("pressreader.com/") && s.range(of: #"/\d{15}"#, options: .regularExpression) != nil
+        // article avec ID 15 chiffres, avec ou sans /textview
+        return s.range(of: #"/[0-9]{15}"#, options: .regularExpression) != nil
+    }
+
+    private var isOnJournal: Bool {
+        // page du journal (date sans article), avec ou sans /textview
+        let s = currentURL?.absoluteString ?? ""
+        let hasDate = s.range(of: #"/[0-9]{8}"#, options: .regularExpression) != nil
+        let hasArticle = s.range(of: #"/[0-9]{15}"#, options: .regularExpression) != nil
+        return hasDate && !hasArticle
     }
 
     private var isOnArchive: Bool {
-        let s = currentURL?.absoluteString ?? ""
-        return s.contains("/archive")
+        currentURL?.absoluteString.contains("/archive") == true
     }
 
     var body: some View {
-        NavigationStack {
-            ZStack {
-                if let url = newspaper.archiveURL {
-                    _PressReaderWebViewBridge(
-                        initialURL: url,
-                        pressReaderPath: newspaper.pressReaderPath,
-                        onCoordinatorReady: { coordinator = $0 },
-                        onURLChange: { currentURL = $0 }
-                    )
-                    .ignoresSafeArea(edges: .bottom)
-                } else {
-                    ContentUnavailableView("URL invalide", systemImage: "xmark.circle")
-                }
+        ZStack(alignment: .top) {
+            Color.black.ignoresSafeArea()
+
+            // WebView plein écran, commence sous la barre custom
+            if let url = newspaper.archiveURL {
+                _PressReaderWebViewBridge(
+                    initialURL: url,
+                    pressReaderPath: newspaper.pressReaderPath,
+                    onCoordinatorReady: { coordinator = $0 },
+                    onURLChange: { currentURL = $0 }
+                )
+                .ignoresSafeArea()
+                .padding(.top, 28) // hauteur de la barre custom
+            } else {
+                ContentUnavailableView("URL invalide", systemImage: "xmark.circle")
             }
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbarBackground(Color.bg, for: .navigationBar)
-            .toolbarColorScheme(.dark, for: .navigationBar)
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button(action: { dismiss() }) {
-                        Text("X")
-                            .font(.system(.body, design: .monospaced))
-                            .foregroundStyle(Color.fgDim)
-                    }
-                }
-                ToolbarItemGroup(placement: .topBarTrailing) {
-                    if isOnArchive {
-                        Button(action: { coordinator?.goToTextView() }) {
-                            Text("txt")
-                                .font(.system(.caption, design: .monospaced))
-                                .foregroundStyle(Color.fg)
-                        }
-                        Button(action: { coordinator?.goToPDF() }) {
-                            Text("pdf")
-                                .font(.system(.caption, design: .monospaced))
-                                .foregroundStyle(Color.fg)
-                        }
-                    }
-                    if isOnArticle {
-                        Button(action: { coordinator?.goToPreviousArticle() }) {
-                            Text("◁◁")
-                                .font(.system(.caption, design: .monospaced))
-                                .foregroundStyle(Color.fg)
-                        }
-                        Button(action: { coordinator?.goToNextArticle() }) {
-                            Text("▷▷")
-                                .font(.system(.caption, design: .monospaced))
-                                .foregroundStyle(Color.fg)
-                        }
-                        Button(action: { coordinator?.goToArchive() }) {
-                            Text("≡")
-                                .font(.system(.caption, design: .monospaced))
-                                .foregroundStyle(Color.fg)
-                        }
-                        if let url = currentURL {
-                            ShareLink(item: url) {
-                                Text("↑")
-                                    .font(.system(.caption, design: .monospaced))
-                                    .foregroundStyle(Color.fg)
-                            }
-                        }
+
+            // Barre custom ultra-fine
+            TerminalBar(
+                isOnArchive: isOnArchive,
+                isOnJournal: isOnJournal,
+                isOnArticle: isOnArticle,
+                viewMode: viewMode,
+                currentURL: currentURL,
+                onDismiss: { dismiss() },
+                onTxt: { coordinator?.goToTextView() },
+                onPdf: { coordinator?.goToPDF() },
+                onPrev: { coordinator?.goToPreviousArticle() },
+                onNext: { coordinator?.goToNextArticle() },
+                onArchive: { coordinator?.goToArchive() }
+            )
+        }
+        .ignoresSafeArea(edges: .top)
+        .preferredColorScheme(.dark)
+    }
+}
+
+// MARK: - Barre terminal custom
+
+private struct TerminalBar: View {
+    let isOnArchive: Bool
+    let isOnJournal: Bool
+    let isOnArticle: Bool
+    let viewMode: ViewMode
+    let currentURL: URL?
+    let onDismiss: () -> Void
+    let onTxt: () -> Void
+    let onPdf: () -> Void
+    let onPrev: () -> Void
+    let onNext: () -> Void
+    let onArchive: () -> Void
+
+    // Police terminal, taille légèrement augmentée
+    private let termFont = Font.system(size: 14, weight: .regular, design: .monospaced)
+    private let dimColor = Color(white: 0.35)
+    private let activeColor = Color(white: 0.82)
+    private let inactiveColor = Color(white: 0.45)
+
+    var body: some View {
+        HStack(spacing: 0) {
+            // Fermer
+            BarBtn("×", color: dimColor, action: onDismiss)
+
+            Spacer()
+
+            // Boutons contextuels
+            if isOnArchive {
+                BarBtn("txt", color: activeColor, action: onTxt)
+                separator
+                BarBtn("pdf", color: activeColor, action: onPdf)
+            }
+
+            if isOnJournal {
+                // Sur la page journal: montrer mode actif et permettre de switcher
+                BarBtn("txt", color: viewMode == .text ? activeColor : inactiveColor, action: onTxt)
+                separator
+                BarBtn("pdf", color: viewMode == .layout ? activeColor : inactiveColor, action: onPdf)
+                separator
+                BarBtn("≡", color: dimColor, action: onArchive)
+            }
+
+            if isOnArticle {
+                BarBtn("◂◂", color: activeColor, action: onPrev)
+                separator
+                BarBtn("▸▸", color: activeColor, action: onNext)
+                separator
+                // switch txt/pdf pour l'article courant
+                BarBtn("txt", color: viewMode == .text ? activeColor : inactiveColor, action: onTxt)
+                separator
+                BarBtn("pdf", color: viewMode == .layout ? activeColor : inactiveColor, action: onPdf)
+                separator
+                BarBtn("≡", color: dimColor, action: onArchive)
+                if let url = currentURL {
+                    separator
+                    ShareLink(item: url) {
+                        Text("↑")
+                            .font(Font.system(size: 14, weight: .regular, design: .monospaced))
+                            .foregroundStyle(activeColor)
+                            .frame(height: 28)
+                            .padding(.horizontal, 10)
                     }
                 }
             }
         }
-        .preferredColorScheme(.dark)
+        .frame(height: 28)
+        .background(Color.black)
+        .overlay(alignment: .bottom) {
+            Rectangle()
+                .fill(Color(white: 0.18))
+                .frame(height: 0.5)
+        }
+        .padding(.top, UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .first?.windows.first?.safeAreaInsets.top ?? 44)
+    }
+
+    private var separator: some View {
+        Text("|")
+            .font(Font.system(size: 12, weight: .ultraLight, design: .monospaced))
+            .foregroundStyle(Color(white: 0.22))
+            .frame(height: 28)
+    }
+}
+
+private struct BarBtn: View {
+    let label: String
+    let color: Color
+    let action: () -> Void
+
+    init(_ label: String, color: Color, action: @escaping () -> Void) {
+        self.label = label
+        self.color = color
+        self.action = action
+    }
+
+    var body: some View {
+        Button(action: action) {
+            Text(label)
+                .font(Font.system(size: 14, weight: .regular, design: .monospaced))
+                .foregroundStyle(color)
+                .frame(height: 28)
+                .padding(.horizontal, 10)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 }
 
