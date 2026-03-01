@@ -75,7 +75,7 @@ struct PressReaderWebView: UIViewRepresentable {
             }
         }
 
-        // 4. Sur /textview : envoyer le titre et detecter page blanche
+        // 4. Sur /textview : envoyer le titre
         if (path.indexOf('/textview') !== -1) {
             function sendTitle() {
                 var title = document.title || '';
@@ -88,16 +88,6 @@ struct PressReaderWebView: UIViewRepresentable {
             var titleEl = document.querySelector('title');
             if (titleEl) titleObs.observe(titleEl, {childList:true, subtree:true, characterData:true});
             setTimeout(function() { titleObs.disconnect(); }, 5000);
-
-            setTimeout(function() {
-                var article = document.querySelector('article, .article-content, .text-content');
-                var isEmpty = !article || article.innerText.trim().length < 50;
-                var title = document.title || '';
-                var notFound = title.toLowerCase().indexOf('not found') !== -1 || title === '';
-                if (isEmpty || notFound) {
-                    window.webkit.messageHandlers.pageBlank.postMessage(window.location.href);
-                }
-            }, 12000);
         }
 
     })();
@@ -107,7 +97,6 @@ struct PressReaderWebView: UIViewRepresentable {
         let config = WKWebViewConfiguration()
         config.websiteDataStore = .default()
         config.userContentController.add(context.coordinator, name: "bearerToken")
-        config.userContentController.add(context.coordinator, name: "pageBlank")
         config.userContentController.add(context.coordinator, name: "pageTitle")
         let wv = WKWebView(frame: .zero, configuration: config)
         wv.navigationDelegate = context.coordinator
@@ -175,12 +164,7 @@ struct PressReaderWebView: UIViewRepresentable {
                     fetchLastEditionViaAPI(bearerToken: token)
                 }
 
-            case "pageBlank":
-                guard let url = URL(string: "https://www.pressreader.com/\(pressReaderPath)/archive")
-                else { return }
-                print("BAVL pageBlank -> retour archive")
-                DispatchQueue.main.async { self.webView?.load(URLRequest(url: url)) }
-
+            
             case "pageTitle":
                 let title = message.body as? String ?? ""
                 print("BAVL pageTitle:", title)
@@ -609,7 +593,6 @@ private struct _PressReaderWebViewBridge: UIViewRepresentable {
         let config = WKWebViewConfiguration()
         config.websiteDataStore = .default()
         config.userContentController.add(context.coordinator, name: "bearerToken")
-        config.userContentController.add(context.coordinator, name: "pageBlank")
         config.userContentController.add(context.coordinator, name: "pageTitle")
         let wv = WKWebView(frame: .zero, configuration: config)
         wv.navigationDelegate = context.coordinator
