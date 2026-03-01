@@ -24,12 +24,14 @@ struct Newspaper: Identifiable, Codable, Hashable {
         return f
     }()
 
-    /// Dernière édition disponible (pas de date → PressReader choisit)
     var latestURL: URL? {
+        let dateStr = Newspaper.dateFormatter.string(from: Date())
         switch viewMode {
         case .text:
-            return URL(string: "https://www.pressreader.com/\(pressReaderPath)/textview")
+            // textview nécessite une date
+            return URL(string: "https://www.pressreader.com/\(pressReaderPath)/\(dateStr)/textview")
         case .layout:
+            // sans date → dernière édition disponible
             return URL(string: "https://www.pressreader.com/\(pressReaderPath)")
         }
     }
