@@ -18,20 +18,19 @@ struct Newspaper: Identifiable, Codable, Hashable {
     var pressReaderPath: String
     var viewMode: ViewMode = .text
 
-    // FIX: DateFormatter mis en cache — coûteux à instancier à chaque appel
     private static let dateFormatter: DateFormatter = {
         let f = DateFormatter()
         f.dateFormat = "yyyyMMdd"
         return f
     }()
 
-    var todayURL: URL? {
-        let dateStr = Newspaper.dateFormatter.string(from: Date())
+    /// Dernière édition disponible (pas de date → PressReader choisit)
+    var latestURL: URL? {
         switch viewMode {
         case .text:
-            return URL(string: "https://www.pressreader.com/\(pressReaderPath)/\(dateStr)/textview")
+            return URL(string: "https://www.pressreader.com/\(pressReaderPath)/textview")
         case .layout:
-            return URL(string: "https://www.pressreader.com/\(pressReaderPath)/\(dateStr)")
+            return URL(string: "https://www.pressreader.com/\(pressReaderPath)")
         }
     }
 }
