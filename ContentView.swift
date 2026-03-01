@@ -111,6 +111,7 @@ struct ContentView: View {
             }
             .sheet(item: $selectedNewspaper) { paper in
                 PressReaderSheet(newspaper: paper)
+                    .presentationCornerRadius(0)
             }
             .onAppear {
                 if vm.cardNumber.isEmpty || vm.password.isEmpty {
