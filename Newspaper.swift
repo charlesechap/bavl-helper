@@ -17,6 +17,7 @@ struct Newspaper: Identifiable, Codable, Hashable {
     var name: String
     var pressReaderPath: String
     var viewMode: ViewMode = .text
+    var lastEditionDate: String? = nil  // format "yyyyMMdd", chargé dynamiquement
 
     private static let dateFormatter: DateFormatter = {
         let f = DateFormatter()
@@ -24,16 +25,18 @@ struct Newspaper: Identifiable, Codable, Hashable {
         return f
     }()
 
-    var latestURL: URL? {
-        let dateStr = Newspaper.dateFormatter.string(from: Date())
+    var resolvedURL: URL? {
+        let date = lastEditionDate ?? Newspaper.dateFormatter.string(from: Date())
         switch viewMode {
         case .text:
-            // textview nécessite une date
-            return URL(string: "https://www.pressreader.com/\(pressReaderPath)/\(dateStr)/textview")
+            return URL(string: "https://www.pressreader.com/\(pressReaderPath)/\(date)/textview")
         case .layout:
-            // sans date → dernière édition disponible
-            return URL(string: "https://www.pressreader.com/\(pressReaderPath)")
+            return URL(string: "https://www.pressreader.com/\(pressReaderPath)/\(date)")
         }
+    }
+
+    var archiveURL: URL? {
+        URL(string: "https://www.pressreader.com/\(pressReaderPath)/archive")
     }
 }
 
