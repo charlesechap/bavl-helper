@@ -178,10 +178,8 @@ struct PressReaderWebView: UIViewRepresentable {
                 }
 
             case "pageBlank":
-                guard let url = URL(string: "https://www.pressreader.com/\(pressReaderPath)/archive")
-                else { return }
-                print("BAVL pageBlank -> retour archive")
-                DispatchQueue.main.async { self.webView?.load(URLRequest(url: url)) }
+                // Ne pas rediriger vers /archive pour éviter la boucle
+                print("BAVL pageBlank: édition indisponible, on reste sur place")
 
             case "pageTitle":
                 let title = message.body as? String ?? ""
