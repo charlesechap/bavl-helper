@@ -82,7 +82,7 @@ struct PressReaderWebView: UIViewRepresentable {
                 var latest = dates[dates.length - 1];
                 __sent = true;
                 console.log('BAVL latest (dom):', latest);
-                window.webkit.messageHandlers.lastEdition.postMessage('dom:' + latest);
+                window.webkit.messageHandlers.lastEdition.postMessage(latest);
                 return true;
             }
 
@@ -118,7 +118,7 @@ struct PressReaderWebView: UIViewRepresentable {
                                 var latest = dates[dates.length - 1];
                                 __sent = true;
                                 console.log('BAVL latest (api):', latest);
-                                window.webkit.messageHandlers.lastEdition.postMessage('api:' + latest);
+                                window.webkit.messageHandlers.lastEdition.postMessage(latest);
                             }
                         })
                         .catch(function(e) { console.log('BAVL api error:', e.message || e); });
@@ -147,7 +147,7 @@ struct PressReaderWebView: UIViewRepresentable {
                             + String(d.getDate()).padStart(2,'0');
                         console.log('BAVL fallback date:', fallback);
                         __sent = true;
-                        window.webkit.messageHandlers.lastEdition.postMessage('fallback:' + fallback);
+                        window.webkit.messageHandlers.lastEdition.postMessage(fallback);
                     }
                 }
             }, 1000);
@@ -205,10 +205,8 @@ struct PressReaderWebView: UIViewRepresentable {
             print("BAVL message:", message.name, message.body)
             switch message.name {
             case "lastEdition":
-                guard let raw = message.body as? String else { return }
-                print("BAVL lastEdition source:", raw)
-                let date = raw.components(separatedBy: ":").last ?? raw
-                guard let url = URL(string: "https://www.pressreader.com/\(pressReaderPath)/\(date)/textview")
+                guard let date = message.body as? String,
+                      let url = URL(string: "https://www.pressreader.com/\(pressReaderPath)/\(date)/textview")
                 else { return }
                 DispatchQueue.main.async { self.webView?.load(URLRequest(url: url)) }
             case "pageBlank":
