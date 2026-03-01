@@ -178,6 +178,46 @@ class AppViewModel: NSObject, ObservableObject {
         }
     }
 
+    // MARK: - Fetch dernière date d'édition pour chaque journal
+    func fetchLastEditionDates() {
+        Task {
+            await withTaskGroup(of: (UUID, String?).self) { group in
+                for newspaper in newspapers {
+                    group.addTask {
+                        let date = await Self.fetchLastEditionDate(for: newspaper)
+                        return (newspaper.id, date)
+                    }
+                }
+                for await (id, date) in group {
+                    if let date, let idx = newspapers.firstIndex(where: { $0.id == id }) {
+                        newspapers[idx].lastEditionDate = date
+                    }
+                }
+            }
+        }
+    }
+
+    private static func fetchLastEditionDate(for newspaper: Newspaper) async -> String? {
+        guard let url = newspaper.archiveURL else { return nil }
+        guard let (data, _) = try? await URLSession.shared.data(from: url) else { return nil }
+        guard let html = String(data: data, encoding: .utf8) else { return nil }
+
+        // PressReader encode les dates dans les URLs des archives sous la forme /YYYYMMDD
+        // On cherche le pattern /chemin/YYYYMMDD qui apparaît dans les liens d'archive
+        let pattern = newspaper.pressReaderPath + #"/(\d{8})"#
+        guard let regex = try? NSRegularExpression(pattern: pattern) else { return nil }
+        let range = NSRange(html.startIndex..., in: html)
+        let matches = regex.matches(in: html, range: range)
+
+        // Extraire toutes les dates et prendre la plus récente
+        let dates = matches.compactMap { match -> String? in
+            guard let r = Range(match.range(at: 1), in: html) else { return nil }
+            return String(html[r])
+        }
+
+        return dates.sorted().last
+    }
+
     // MARK: - Teardown WebView
     private func teardownWebView() {
         webView?.navigationDelegate = nil
@@ -300,6 +340,7 @@ extension AppViewModel: WKNavigationDelegate {
                 loginState = .success
                 markSessionStart()
                 teardownWebView()
+                fetchLastEditionDates()
 
             } else {
                 print("Page intermédiaire: \(url)")
@@ -330,4 +371,5 @@ extension AppViewModel: WKNavigationDelegate {
         }
     }
 }
+
 
