@@ -12,87 +12,78 @@ struct PressReaderWebView: UIViewRepresentable {
     (function() {
 
         // 1. Masquer la navbar PressReader
-        var style = document.getElementById('__bavl_style');
-        if (!style) {
-            style = document.createElement('style');
-            style.id = '__bavl_style';
-            style.textContent = `
+        if (!document.getElementById('__bavl_style')) {
+            var s = document.createElement('style');
+            s.id = '__bavl_style';
+            s.textContent = `
                 .header, .site-header, nav.navbar, [class*="header"],
                 [class*="Header"], [class*="nav-bar"], [class*="NavBar"],
-                [class*="top-bar"], [class*="TopBar"] {
-                    display: none !important;
-                }
-                body, #root, .app-container {
-                    padding-top: 0 !important;
-                    margin-top: 0 !important;
-                }
+                [class*="top-bar"], [class*="TopBar"] { display: none !important; }
+                body, #root, .app-container { padding-top: 0 !important; margin-top: 0 !important; }
             `;
-            (document.head || document.documentElement).appendChild(style);
+            (document.head || document.documentElement).appendChild(s);
         }
 
         // 2. Fermer le popup "Bienvenue"
         function dismissPopup() {
-            var selectors = [
-                'button[aria-label="Close"]', 'button[aria-label="Fermer"]',
-                'button.welcome-dialog__close', '.modal-close',
-                '[data-testid="welcome-dismiss"]'
-            ];
-            for (var i = 0; i < selectors.length; i++) {
-                var btn = document.querySelector(selectors[i]);
-                if (btn) { btn.click(); return true; }
+            var sel = ['button[aria-label="Close"]','button[aria-label="Fermer"]',
+                       'button.welcome-dialog__close','.modal-close','[data-testid="welcome-dismiss"]'];
+            for (var i = 0; i < sel.length; i++) {
+                var b = document.querySelector(sel[i]);
+                if (b) { b.click(); return true; }
             }
-            var buttons = document.querySelectorAll('button');
-            for (var j = 0; j < buttons.length; j++) {
-                var t = (buttons[j].innerText || '').toLowerCase().trim();
-                if (t === 'close' || t === 'fermer' || t === 'x' || t === 'x') {
-                    buttons[j].click(); return true;
-                }
+            var btns = document.querySelectorAll('button');
+            for (var j = 0; j < btns.length; j++) {
+                var t = (btns[j].innerText || '').toLowerCase().trim();
+                if (t === 'close' || t === 'fermer' || t === 'x') { btns[j].click(); return true; }
             }
             return false;
         }
         if (!dismissPopup()) {
-            var popupObs = new MutationObserver(function(_, obs) {
-                if (dismissPopup()) obs.disconnect();
-            });
-            popupObs.observe(document.documentElement, { childList: true, subtree: true });
-            setTimeout(function() { popupObs.disconnect(); }, 10000);
+            var pObs = new MutationObserver(function(_, o) { if (dismissPopup()) o.disconnect(); });
+            pObs.observe(document.documentElement, {childList:true, subtree:true});
+            setTimeout(function() { pObs.disconnect(); }, 10000);
         }
 
         var path = window.location.pathname;
 
-        // 3. Sur /archive : extraire la derniere date disponible
-        if (path.endsWith('/archive')) {
-            function extractLatestDate() {
-                var links = document.querySelectorAll('a[href]');
-                var dates = [];
-                var re = /\\/([0-9]{8})(?:\\/|$)/;
-                for (var i = 0; i < links.length; i++) {
-                    var m = links[i].getAttribute('href').match(re);
-                    if (m) dates.push(m[1]);
+        // 3. Sur /archive : scanner le HTML brut toutes les secondes pour trouver la derniere date
+        if (path.indexOf('/archive') !== -1) {
+            var __sent = false;
+            var __tries = 0;
+            function findLatest() {
+                if (__sent) return;
+                var html = document.documentElement.innerHTML;
+                var re = /\\/([0-9]{8})(?:\\/|")/g;
+                var dates = [], m;
+                while ((m = re.exec(html)) !== null) {
+                    var d = m[1];
+                    if (d >= '20200101' && d <= '20301231') dates.push(d);
                 }
-                if (dates.length === 0) return false;
+                if (dates.length === 0) return;
                 dates.sort();
                 var latest = dates[dates.length - 1];
+                __sent = true;
+                console.log('BAVL latest:', latest);
                 window.webkit.messageHandlers.lastEdition.postMessage(latest);
-                return true;
             }
-            if (!extractLatestDate()) {
-                var archObs = new MutationObserver(function(_, obs) {
-                    if (extractLatestDate()) obs.disconnect();
-                });
-                archObs.observe(document.documentElement, { childList: true, subtree: true });
-                setTimeout(function() { archObs.disconnect(); }, 8000);
+            findLatest();
+            if (!__sent) {
+                var iv = setInterval(function() {
+                    __tries++;
+                    findLatest();
+                    if (__sent || __tries >= 15) clearInterval(iv);
+                }, 1000);
             }
         }
 
-        // 4. Sur /textview : detecter page blanche
+        // 4. Sur /textview : detecter page blanche apres 3s
         if (path.indexOf('/textview') !== -1) {
             setTimeout(function() {
                 var article = document.querySelector('article, .article-content, .text-content');
                 var isEmpty = !article || article.innerText.trim().length < 50;
                 var title = document.title || '';
-                var notFound = title.toLowerCase().indexOf('not found') !== -1
-                            || title.toLowerCase().indexOf('404') !== -1;
+                var notFound = title.toLowerCase().indexOf('not found') !== -1 || title === '';
                 if (isEmpty || notFound) {
                     window.webkit.messageHandlers.pageBlank.postMessage(window.location.href);
                 }
@@ -135,18 +126,17 @@ struct PressReaderWebView: UIViewRepresentable {
 
         func userContentController(_ userContentController: WKUserContentController,
                                    didReceive message: WKScriptMessage) {
+            print("BAVL message:", message.name, message.body)
             switch message.name {
             case "lastEdition":
                 guard let date = message.body as? String,
                       let url = URL(string: "https://www.pressreader.com/\(pressReaderPath)/\(date)/textview")
                 else { return }
                 DispatchQueue.main.async { self.webView?.load(URLRequest(url: url)) }
-
             case "pageBlank":
                 guard let url = URL(string: "https://www.pressreader.com/\(pressReaderPath)/archive")
                 else { return }
                 DispatchQueue.main.async { self.webView?.load(URLRequest(url: url)) }
-
             default: break
             }
         }
