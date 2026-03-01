@@ -133,7 +133,16 @@ struct PressReaderWebView: UIViewRepresentable {
         func startObservingURL(_ wv: WKWebView) {
             urlObservation = wv.observe(\.url, options: [.new]) { [weak self] webView, _ in
                 DispatchQueue.main.async {
-                    self?.onURLChange?(webView.url)
+                    guard let self = self else { return }
+                    self.onURLChange?(webView.url)
+                    // SPA navigation (pushState): mettre à jour currentDate
+                    if let urlStr = webView.url?.absoluteString {
+                        let dateRegex = try? NSRegularExpression(pattern: #"/(\d{8})/"#)
+                        if let match = dateRegex?.firstMatch(in: urlStr, range: NSRange(urlStr.startIndex..., in: urlStr)),
+                           let range = Range(match.range(at: 1), in: urlStr) {
+                            self.currentDate = String(urlStr[range])
+                        }
+                    }
                 }
             }
         }
@@ -200,6 +209,15 @@ struct PressReaderWebView: UIViewRepresentable {
                 guard let data = data, error == nil else { self.loadFallbackDate(); return }
                 let raw = String(data: data, encoding: .utf8) ?? ""
                 print("BAVL API response (first 300):", String(raw.prefix(300)))
+                // Extraire issueId (ex: "f1652026022800000051001001") depuis la réponse
+                if let parsed = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                   let issues = parsed["Issues"] as? [[String: Any]],
+                   let first = issues.first,
+                   let issueId = first["Issue"] as? String, !issueId.isEmpty {
+                    print("BAVL issueId trouvé:", issueId)
+                    self.currentIssueId = issueId
+                    self.loadTOC(issueId: issueId)
+                }
                 if let date = self.extractLatestDate(from: raw) {
                     print("BAVL API date trouvee:", date)
                     self.navigateToTextView(date: date)
@@ -500,12 +518,12 @@ private struct TerminalBar: View {
             }
 
             if isOnArticle {
-                BarBtn("◂", color: activeColor, action: onPrev)
+                BarBtn("←", color: activeColor, action: onPrev)
                 separator
-                BarBtn("▸", color: activeColor, action: onNext)
+                BarBtn("→", color: activeColor, action: onNext)
                 if let url = currentURL {
                     separator
-                    BarBtn("↑", color: activeColor, action: {
+                    BarBtn("⬆", color: activeColor, action: {
                         let av = UIActivityViewController(activityItems: [url], applicationActivities: nil)
                         if let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
                            let root = scene.windows.first?.rootViewController {
