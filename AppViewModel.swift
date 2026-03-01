@@ -330,3 +330,4 @@ extension AppViewModel: WKNavigationDelegate {
         }
     }
 }
+
