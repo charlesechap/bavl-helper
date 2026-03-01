@@ -47,37 +47,113 @@ struct PressReaderWebView: UIViewRepresentable {
 
         var path = window.location.pathname;
 
-        // 3. Sur /archive : scanner le HTML brut toutes les secondes pour trouver la derniere date
+        // 3. Sur /archive : extraire la dernière date (SPA — attendre le rendu)
         if (path.indexOf('/archive') !== -1) {
             var __sent = false;
-            var __tries = 0;
-            function findLatest() {
-                if (__sent) return;
-                var html = document.documentElement.innerHTML;
-                var re = /\\/([0-9]{8})(?:\\/|")/g;
-                var dates = [], m;
-                while ((m = re.exec(html)) !== null) {
-                    var d = m[1];
-                    if (d >= '20200101' && d <= '20301231') dates.push(d);
+
+            function extractDatesFromDOM() {
+                if (__sent) return false;
+                var dates = [];
+                // Chercher dans les liens <a href="/switzerland/le-temps/20260228">
+                var links = document.querySelectorAll('a[href]');
+                var reLink = /\\/([0-9]{8})(?:\\/|$)/;
+                for (var i = 0; i < links.length; i++) {
+                    var href = links[i].getAttribute('href') || '';
+                    var m = reLink.exec(href);
+                    if (m) {
+                        var d = m[1];
+                        if (d >= '20200101' && d <= '20301231') dates.push(d);
+                    }
                 }
-                if (dates.length === 0) return;
+                // Chercher dans les attributs data-* (ex: data-date="20260228")
+                var all = document.querySelectorAll('[data-date],[data-issue-date],[data-edition]');
+                for (var k = 0; k < all.length; k++) {
+                    var attrs = ['data-date','data-issue-date','data-edition'];
+                    for (var a = 0; a < attrs.length; a++) {
+                        var val = all[k].getAttribute(attrs[a]) || '';
+                        var clean = val.replace(/-/g,'');
+                        if (/^[0-9]{8}$/.test(clean) && clean >= '20200101' && clean <= '20301231') {
+                            dates.push(clean);
+                        }
+                    }
+                }
+                if (dates.length === 0) return false;
                 dates.sort();
                 var latest = dates[dates.length - 1];
                 __sent = true;
-                console.log('BAVL latest:', latest);
+                console.log('BAVL latest (dom):', latest);
                 window.webkit.messageHandlers.lastEdition.postMessage(latest);
+                return true;
             }
-            findLatest();
-            if (!__sent) {
-                var iv = setInterval(function() {
-                    __tries++;
-                    findLatest();
-                    if (__sent || __tries >= 15) clearInterval(iv);
-                }, 1000);
+
+            // Tentative via l'API interne que la SPA utilise
+            function tryAPIFetch() {
+                if (__sent) return;
+                var parts = window.location.pathname.replace(/^\\//, '').split('/');
+                if (parts.length < 2) return;
+                var cid = parts.slice(0, parts.length - 1).join('/');
+
+                // Essayer plusieurs endpoints possibles
+                var endpoints = [
+                    'https://services.pressreader.com/api/catalog/issues?cid=' + encodeURIComponent(cid) + '&count=5',
+                    'https://cdn1.pressreader.com/api/issues?cid=' + encodeURIComponent(cid) + '&count=5'
+                ];
+
+                endpoints.forEach(function(url) {
+                    if (__sent) return;
+                    fetch(url, {credentials: 'include'})
+                        .then(function(r) { return r.json(); })
+                        .then(function(data) {
+                            if (__sent) return;
+                            var str = JSON.stringify(data);
+                            var re = /[^0-9]([0-9]{8})[^0-9]/g;
+                            var dates = [];
+                            var m;
+                            while ((m = re.exec(str)) !== null) {
+                                var d = m[1];
+                                if (d >= '20200101' && d <= '20301231') dates.push(d);
+                            }
+                            if (dates.length > 0) {
+                                dates.sort();
+                                var latest = dates[dates.length - 1];
+                                __sent = true;
+                                console.log('BAVL latest (api):', latest);
+                                window.webkit.messageHandlers.lastEdition.postMessage(latest);
+                            }
+                        })
+                        .catch(function(e) { console.log('BAVL api error:', e.message || e); });
+                });
             }
+
+            tryAPIFetch();
+
+            // MutationObserver : déclenche dès que la SPA injecte du contenu
+            var domObserver = new MutationObserver(function() { extractDatesFromDOM(); });
+            domObserver.observe(document.documentElement, {childList: true, subtree: true, attributes: true, attributeFilter: ['href','data-date','data-issue-date','data-edition']});
+
+            // Polling de secours toutes les secondes pendant 20s
+            var tries = 0;
+            var iv = setInterval(function() {
+                tries++;
+                if (extractDatesFromDOM() || tries >= 20) {
+                    clearInterval(iv);
+                    domObserver.disconnect();
+                    if (!__sent) {
+                        // Fallback : essayer avec hier
+                        var d = new Date();
+                        d.setDate(d.getDate() - 1);
+                        var fallback = '' + d.getFullYear()
+                            + String(d.getMonth()+1).padStart(2,'0')
+                            + String(d.getDate()).padStart(2,'0');
+                        console.log('BAVL fallback date:', fallback);
+                        __sent = true;
+                        window.webkit.messageHandlers.lastEdition.postMessage(fallback);
+                    }
+                }
+            }, 1000);
         }
 
-        // 4. Sur /textview : detecter page blanche apres 3s
+        // 4. Sur /textview : détecter page blanche après 3s
         if (path.indexOf('/textview') !== -1) {
             setTimeout(function() {
                 var article = document.querySelector('article, .article-content, .text-content');
@@ -151,7 +227,7 @@ struct PressReaderSheet: View {
 
     var body: some View {
         ZStack(alignment: .topLeading) {
-            if let url = newspaper.resolvedURL {
+            if let url = newspaper.archiveURL {
                 PressReaderWebView(
                     initialURL: url,
                     pressReaderPath: newspaper.pressReaderPath
