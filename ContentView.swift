@@ -242,7 +242,7 @@ struct ContentView: View {
 
     @ViewBuilder
     private func newspaperRow(paper: Newspaper, index: Int) -> some View {
-        if let url = paper.latestURL {
+        if let url = paper.resolvedURL {
             Link(destination: url) {
                 HStack(alignment: .top, spacing: 8) {
                     Text("\(String(format: "%02d", index + 1)).")
@@ -306,4 +306,5 @@ private extension Array {
 #Preview("iPad — deux colonnes") {
     ContentView()
 }
+
 
