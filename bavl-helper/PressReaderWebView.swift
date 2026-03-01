@@ -47,110 +47,22 @@ struct PressReaderWebView: UIViewRepresentable {
 
         var path = window.location.pathname;
 
-        // 3. Sur /archive : extraire la dernière date (SPA — attendre le rendu)
+        // 3. Sur /archive : extraire le bearer token et l'envoyer à Swift
         if (path.indexOf('/archive') !== -1) {
-            var __sent = false;
-
-            function extractDatesFromDOM() {
-                if (__sent) return false;
-                var dates = [];
-                // Chercher dans les liens <a href="/switzerland/le-temps/20260228">
-                var links = document.querySelectorAll('a[href]');
-                var reLink = /\\/([0-9]{8})(?:\\/|$)/;
-                for (var i = 0; i < links.length; i++) {
-                    var href = links[i].getAttribute('href') || '';
-                    var m = reLink.exec(href);
-                    if (m) {
-                        var d = m[1];
-                        if (d >= '20200101' && d <= '20301231') dates.push(d);
+            var token = (window.preset && window.preset.bearerToken) ? window.preset.bearerToken : null;
+            if (token) {
+                window.webkit.messageHandlers.bearerToken.postMessage(token);
+            } else {
+                // Le preset n'est pas encore disponible, on attend un peu
+                setTimeout(function() {
+                    var t2 = (window.preset && window.preset.bearerToken) ? window.preset.bearerToken : null;
+                    if (t2) {
+                        window.webkit.messageHandlers.bearerToken.postMessage(t2);
+                    } else {
+                        window.webkit.messageHandlers.bearerToken.postMessage('');
                     }
-                }
-                // Chercher dans les attributs data-* (ex: data-date="20260228")
-                var all = document.querySelectorAll('[data-date],[data-issue-date],[data-edition]');
-                for (var k = 0; k < all.length; k++) {
-                    var attrs = ['data-date','data-issue-date','data-edition'];
-                    for (var a = 0; a < attrs.length; a++) {
-                        var val = all[k].getAttribute(attrs[a]) || '';
-                        var clean = val.replace(/-/g,'');
-                        if (/^[0-9]{8}$/.test(clean) && clean >= '20200101' && clean <= '20301231') {
-                            dates.push(clean);
-                        }
-                    }
-                }
-                if (dates.length === 0) return false;
-                dates.sort();
-                var latest = dates[dates.length - 1];
-                __sent = true;
-                console.log('BAVL latest (dom):', latest);
-                window.webkit.messageHandlers.lastEdition.postMessage(latest);
-                return true;
+                }, 500);
             }
-
-            // Tentative via l'API interne que la SPA utilise
-            function tryAPIFetch() {
-                if (__sent) return;
-                var parts = window.location.pathname.replace(/^\\//, '').split('/');
-                if (parts.length < 2) return;
-                var cid = parts.slice(0, parts.length - 1).join('/');
-
-                // Essayer plusieurs endpoints possibles
-                var endpoints = [
-                    'https://services.pressreader.com/api/catalog/issues?cid=' + encodeURIComponent(cid) + '&count=5',
-                    'https://cdn1.pressreader.com/api/issues?cid=' + encodeURIComponent(cid) + '&count=5'
-                ];
-
-                endpoints.forEach(function(url) {
-                    if (__sent) return;
-                    fetch(url, {credentials: 'include'})
-                        .then(function(r) { return r.json(); })
-                        .then(function(data) {
-                            if (__sent) return;
-                            var str = JSON.stringify(data);
-                            var re = /[^0-9]([0-9]{8})[^0-9]/g;
-                            var dates = [];
-                            var m;
-                            while ((m = re.exec(str)) !== null) {
-                                var d = m[1];
-                                if (d >= '20200101' && d <= '20301231') dates.push(d);
-                            }
-                            if (dates.length > 0) {
-                                dates.sort();
-                                var latest = dates[dates.length - 1];
-                                __sent = true;
-                                console.log('BAVL latest (api):', latest);
-                                window.webkit.messageHandlers.lastEdition.postMessage(latest);
-                            }
-                        })
-                        .catch(function(e) { console.log('BAVL api error:', e.message || e); });
-                });
-            }
-
-            tryAPIFetch();
-
-            // MutationObserver : déclenche dès que la SPA injecte du contenu
-            var domObserver = new MutationObserver(function() { extractDatesFromDOM(); });
-            domObserver.observe(document.documentElement, {childList: true, subtree: true, attributes: true, attributeFilter: ['href','data-date','data-issue-date','data-edition']});
-
-            // Polling de secours toutes les secondes pendant 20s
-            var tries = 0;
-            var iv = setInterval(function() {
-                tries++;
-                if (extractDatesFromDOM() || tries >= 20) {
-                    clearInterval(iv);
-                    domObserver.disconnect();
-                    if (!__sent) {
-                        // Fallback : essayer avec hier
-                        var d = new Date();
-                        d.setDate(d.getDate() - 1);
-                        var fallback = '' + d.getFullYear()
-                            + String(d.getMonth()+1).padStart(2,'0')
-                            + String(d.getDate()).padStart(2,'0');
-                        console.log('BAVL fallback date:', fallback);
-                        __sent = true;
-                        window.webkit.messageHandlers.lastEdition.postMessage(fallback);
-                    }
-                }
-            }, 1000);
         }
 
         // 4. Sur /textview : détecter page blanche après 3s
@@ -172,7 +84,7 @@ struct PressReaderWebView: UIViewRepresentable {
     func makeUIView(context: Context) -> WKWebView {
         let config = WKWebViewConfiguration()
         config.websiteDataStore = .default()
-        config.userContentController.add(context.coordinator, name: "lastEdition")
+        config.userContentController.add(context.coordinator, name: "bearerToken")
         config.userContentController.add(context.coordinator, name: "pageBlank")
         let wv = WKWebView(frame: .zero, configuration: config)
         wv.navigationDelegate = context.coordinator
@@ -202,19 +114,118 @@ struct PressReaderWebView: UIViewRepresentable {
 
         func userContentController(_ userContentController: WKUserContentController,
                                    didReceive message: WKScriptMessage) {
-            print("BAVL message:", message.name, message.body)
             switch message.name {
-            case "lastEdition":
-                guard let date = message.body as? String,
-                      let url = URL(string: "https://www.pressreader.com/\(pressReaderPath)/\(date)/textview")
-                else { return }
-                DispatchQueue.main.async { self.webView?.load(URLRequest(url: url)) }
+
+            case "bearerToken":
+                let token = message.body as? String ?? ""
+                print("BAVL bearerToken received, length:", token.count)
+                if token.isEmpty {
+                    print("BAVL bearer token vide, fallback DOM")
+                    loadFallbackDate()
+                } else {
+                    fetchLastEditionViaAPI(bearerToken: token)
+                }
+
             case "pageBlank":
                 guard let url = URL(string: "https://www.pressreader.com/\(pressReaderPath)/archive")
                 else { return }
+                print("BAVL pageBlank → retour archive")
                 DispatchQueue.main.async { self.webView?.load(URLRequest(url: url)) }
-            default: break
+
+            default:
+                break
             }
+        }
+
+        // MARK: - Appel API direct avec le bearer token
+
+        private func fetchLastEditionViaAPI(bearerToken: String) {
+            // L'URL de service est https://ingress.pressreader.com/services/
+            // On reconstruit le cid depuis pressReaderPath (ex: "switzerland/le-temps")
+            let cid = pressReaderPath
+            guard let encoded = cid.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
+                  let url = URL(string: "https://ingress.pressreader.com/services/catalog/issues?cid=\(encoded)&count=3")
+            else {
+                print("BAVL URL API invalide")
+                loadFallbackDate()
+                return
+            }
+
+            var request = URLRequest(url: url, timeoutInterval: 10)
+            request.setValue("Bearer \(bearerToken)", forHTTPHeaderField: "Authorization")
+            request.setValue("application/json", forHTTPHeaderField: "Accept")
+
+            print("BAVL API call →", url.absoluteString)
+
+            URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
+                guard let self = self else { return }
+
+                if let error = error {
+                    print("BAVL API error:", error.localizedDescription)
+                    self.loadFallbackDate()
+                    return
+                }
+
+                guard let data = data else {
+                    print("BAVL API no data")
+                    self.loadFallbackDate()
+                    return
+                }
+
+                // Log la réponse brute pour debug
+                let raw = String(data: data, encoding: .utf8) ?? "(non-utf8)"
+                print("BAVL API response (first 300):", String(raw.prefix(300)))
+
+                // Extraire la première date YYYYMMDD valide
+                if let date = self.extractLatestDate(from: raw) {
+                    print("BAVL API date trouvée:", date)
+                    self.navigateToTextView(date: date)
+                } else {
+                    print("BAVL API aucune date extraite")
+                    self.loadFallbackDate()
+                }
+            }.resume()
+        }
+
+        // MARK: - Extraction de date depuis JSON brut
+
+        private func extractLatestDate(from json: String) -> String? {
+            let pattern = "[^0-9]([0-9]{8})[^0-9]"
+            guard let regex = try? NSRegularExpression(pattern: pattern) else { return nil }
+            let padded = " \(json) "
+            let range = NSRange(padded.startIndex..., in: padded)
+            var dates: [String] = []
+            regex.enumerateMatches(in: padded, range: range) { match, _, _ in
+                guard let match = match,
+                      let r = Range(match.range(at: 1), in: padded) else { return }
+                let d = String(padded[r])
+                if d >= "20200101" && d <= "20301231" {
+                    dates.append(d)
+                }
+            }
+            return dates.sorted().last
+        }
+
+        // MARK: - Fallback : hier
+
+        private func loadFallbackDate() {
+            var cal = Calendar(identifier: .gregorian)
+            cal.timeZone = TimeZone(identifier: "Europe/Zurich")!
+            let yesterday = cal.date(byAdding: .day, value: -1, to: Date())!
+            let fmt = DateFormatter()
+            fmt.dateFormat = "yyyyMMdd"
+            fmt.timeZone = TimeZone(identifier: "Europe/Zurich")
+            let date = fmt.string(from: yesterday)
+            print("BAVL fallback date:", date)
+            navigateToTextView(date: date)
+        }
+
+        // MARK: - Navigation vers textview
+
+        private func navigateToTextView(date: String) {
+            guard let url = URL(string: "https://www.pressreader.com/\(pressReaderPath)/\(date)/textview")
+            else { return }
+            DispatchQueue.main.async { self.webView?.load(URLRequest(url: url)) }
         }
     }
 }
