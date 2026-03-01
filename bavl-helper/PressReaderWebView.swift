@@ -226,11 +226,11 @@ struct PressReaderWebView: UIViewRepresentable {
         // MARK: - Actions toolbar
 
         func goToPreviousArticle() {
-            webView?.go(back: true)
+            webView?.goBack()
         }
 
         func goToNextArticle() {
-            webView?.go(forward: true)
+            webView?.goForward()
         }
 
         func goToArchive() {
@@ -336,9 +336,8 @@ private struct _PressReaderWebViewBridge: UIViewRepresentable {
     }
 }
 
-// Extension pour go(back:) / go(forward:)
+// Extension pour navigation avant/arrière
 private extension WKWebView {
-    func go(back: Bool) {
-        if back { goBack() } else { goForward() }
-    }
+    func goBackward() { goBack() }
+    func goForward_() { goForward() }
 }
