@@ -426,7 +426,6 @@ struct PressReaderSheet: View {
 
                 // Barre terminal custom
                 TerminalBar(
-                    safeAreaTop: safeTop,
                     isOnArchive: isOnArchive,
                     isOnJournal: isOnJournal,
                     isOnArticle: isOnArticle,
@@ -437,7 +436,8 @@ struct PressReaderSheet: View {
                     onPdf: { coordinator?.goToPDF() },
                     onPrev: { coordinator?.goToPreviousArticle() },
                     onNext: { coordinator?.goToNextArticle() },
-                    onArchive: { coordinator?.goToArchive() }
+                    onArchive: { coordinator?.goToArchive() },
+                    safeAreaTop: safeTop
                 )
             }
             .ignoresSafeArea(edges: .top)
