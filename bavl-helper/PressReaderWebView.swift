@@ -212,13 +212,7 @@ struct PressReaderWebView: UIViewRepresentable {
         }
 
         private func loadFallbackDate() {
-            var cal = Calendar(identifier: .gregorian)
-            cal.timeZone = TimeZone(identifier: "Europe/Zurich")!
-            let yesterday = cal.date(byAdding: .day, value: -1, to: Date())!
-            let fmt = DateFormatter()
-            fmt.dateFormat = "yyyyMMdd"
-            fmt.timeZone = TimeZone(identifier: "Europe/Zurich")
-            let date = fmt.string(from: yesterday)
+            let date = fallbackDate()
             print("BAVL fallback date:", date)
             navigateToTextView(date: date)
         }
@@ -330,6 +324,30 @@ struct PressReaderWebView: UIViewRepresentable {
             else { return }
             webView?.load(URLRequest(url: url))
         }
+
+        func goToTextView() {
+            // Aller sur la textview du numéro courant (date déjà connue ou fallback)
+            let date = currentDate.isEmpty ? fallbackDate() : currentDate
+            navigateToTextView(date: date)
+        }
+
+        func goToPDF() {
+            // URL PDF PressReader: /pressreader.com/{path}/{date}/pdf
+            let date = currentDate.isEmpty ? fallbackDate() : currentDate
+            guard let url = URL(string: "https://www.pressreader.com/\(pressReaderPath)/\(date)/pdf")
+            else { return }
+            DispatchQueue.main.async { self.webView?.load(URLRequest(url: url)) }
+        }
+
+        private func fallbackDate() -> String {
+            var cal = Calendar(identifier: .gregorian)
+            cal.timeZone = TimeZone(identifier: "Europe/Zurich")!
+            let yesterday = cal.date(byAdding: .day, value: -1, to: Date())!
+            let fmt = DateFormatter()
+            fmt.dateFormat = "yyyyMMdd"
+            fmt.timeZone = TimeZone(identifier: "Europe/Zurich")
+            return fmt.string(from: yesterday)
+        }
     }
 }
 
@@ -343,7 +361,13 @@ struct PressReaderSheet: View {
     @State private var coordinator: PressReaderWebView.Coordinator? = nil
 
     private var isOnArticle: Bool {
-        currentURL?.absoluteString.contains("/textview") == true
+        let s = currentURL?.absoluteString ?? ""
+        return s.contains("/textview") || s.contains("pressreader.com/") && s.range(of: #"/\d{15}"#, options: .regularExpression) != nil
+    }
+
+    private var isOnArchive: Bool {
+        let s = currentURL?.absoluteString ?? ""
+        return s.contains("/archive")
     }
 
     var body: some View {
@@ -371,41 +395,47 @@ struct PressReaderSheet: View {
                             .font(.system(.body, design: .monospaced))
                             .foregroundStyle(Color.fgDim)
                     }
-                    .buttonStyle(.plain)
                 }
                 ToolbarItemGroup(placement: .topBarTrailing) {
+                    if isOnArchive {
+                        Button(action: { coordinator?.goToTextView() }) {
+                            Text("txt")
+                                .font(.system(.caption, design: .monospaced))
+                                .foregroundStyle(Color.fg)
+                        }
+                        Button(action: { coordinator?.goToPDF() }) {
+                            Text("pdf")
+                                .font(.system(.caption, design: .monospaced))
+                                .foregroundStyle(Color.fg)
+                        }
+                    }
                     if isOnArticle {
                         Button(action: { coordinator?.goToPreviousArticle() }) {
                             Text("◁◁")
                                 .font(.system(.caption, design: .monospaced))
                                 .foregroundStyle(Color.fg)
                         }
-                        .buttonStyle(.plain)
                         Button(action: { coordinator?.goToNextArticle() }) {
                             Text("▷▷")
                                 .font(.system(.caption, design: .monospaced))
                                 .foregroundStyle(Color.fg)
                         }
-                        .buttonStyle(.plain)
                         Button(action: { coordinator?.goToArchive() }) {
                             Text("≡")
                                 .font(.system(.caption, design: .monospaced))
                                 .foregroundStyle(Color.fg)
                         }
-                        .buttonStyle(.plain)
                         if let url = currentURL {
                             ShareLink(item: url) {
                                 Text("↑")
                                     .font(.system(.caption, design: .monospaced))
                                     .foregroundStyle(Color.fg)
                             }
-                            .buttonStyle(.plain)
                         }
                     }
                 }
             }
         }
-        .tint(.clear)
         .preferredColorScheme(.dark)
     }
 }
