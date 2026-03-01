@@ -47,6 +47,7 @@ struct ASCIISpinnerView: View {
 struct ContentView: View {
     @StateObject private var vm = AppViewModel()
     @State private var showSettings = false
+    @State private var selectedNewspaper: Newspaper? = nil
     @Environment(\.horizontalSizeClass) private var hSizeClass
 
     private var isIPad: Bool { hSizeClass == .regular }
@@ -107,6 +108,9 @@ struct ContentView: View {
             }
             .sheet(isPresented: $showSettings) {
                 SettingsView(vm: vm)
+            }
+            .sheet(item: $selectedNewspaper) { paper in
+                PressReaderSheet(newspaper: paper)
             }
             .onAppear {
                 if vm.cardNumber.isEmpty || vm.password.isEmpty {
@@ -242,8 +246,10 @@ struct ContentView: View {
 
     @ViewBuilder
     private func newspaperRow(paper: Newspaper, index: Int) -> some View {
-        if let url = paper.resolvedURL {
-            Link(destination: url) {
+        if paper.resolvedURL != nil {
+            Button {
+                selectedNewspaper = paper
+            } label: {
                 HStack(alignment: .top, spacing: 8) {
                     Text("\(String(format: "%02d", index + 1)).")
                         .font(.system(.body, design: .monospaced))
