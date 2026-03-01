@@ -68,9 +68,14 @@ struct SettingsView: View {
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("OK") {
+                        // FIX: détecter si les credentials ont changé pour relancer la connexion
+                        let credentialsChanged = cardNumber != vm.cardNumber || password != vm.password
                         vm.cardNumber = cardNumber
                         vm.password = password
                         dismiss()
+                        if credentialsChanged {
+                            vm.login()
+                        }
                     }
                     .font(.system(.body, design: .monospaced))
                     .foregroundStyle(.white)
