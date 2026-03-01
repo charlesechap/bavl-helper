@@ -128,6 +128,15 @@ struct PressReaderWebView: UIViewRepresentable {
         var pressReaderPath: String = ""
         var onTitleChange: ((String) -> Void)?
         var onURLChange: ((URL?) -> Void)?
+        private var urlObservation: NSKeyValueObservation?
+
+        func startObservingURL(_ wv: WKWebView) {
+            urlObservation = wv.observe(\.url, options: [.new]) { [weak self] webView, _ in
+                DispatchQueue.main.async {
+                    self?.onURLChange?(webView.url)
+                }
+            }
+        }
 
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
             let url = webView.url?.absoluteString ?? "nil"
@@ -544,7 +553,7 @@ private struct BarBtn: View {
     var body: some View {
         Button(action: action) {
             Text(label)
-                .font(Font.system(size: 14, weight: .regular, design: .monospaced))
+                .font(Font.system(.body, design: .monospaced))
                 .foregroundStyle(color)
                 .frame(height: 44)
                 .padding(.horizontal, 10)
@@ -575,6 +584,8 @@ private struct _PressReaderWebViewBridge: UIViewRepresentable {
         context.coordinator.pressReaderPath = pressReaderPath
         context.coordinator.onURLChange = onURLChange
         wv.load(URLRequest(url: initialURL))
+        // Observer les changements d'URL (navigation SPA sans didFinish)
+        context.coordinator.startObservingURL(wv)
         DispatchQueue.main.async { self.onCoordinatorReady(context.coordinator) }
         return wv
     }
