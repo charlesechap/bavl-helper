@@ -73,6 +73,7 @@ struct PressReaderWebView: UIViewRepresentable {
 
     func makeUIView(context: Context) -> WKWebView {
         let config = WKWebViewConfiguration()
+        config.websiteDataStore = .default()  // partage les cookies avec l'auth WebView
         config.userContentController.add(context.coordinator, name: "pageBlank")
         let wv = WKWebView(frame: .zero, configuration: config)
         wv.navigationDelegate = context.coordinator
@@ -128,32 +129,33 @@ struct PressReaderWebView: UIViewRepresentable {
 
 // MARK: - PressReaderSheet
 
-/// Vue sheet complète avec barre de navigation et bouton Fermer.
+/// Vue sheet complète avec bouton Fermer flottant.
 struct PressReaderSheet: View {
     let newspaper: Newspaper
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
-        NavigationStack {
-            Group {
-                if let url = newspaper.resolvedURL {
-                    PressReaderWebView(
-                        initialURL: url,
-                        archiveURL: newspaper.archiveURL
-                    )
-                    .ignoresSafeArea(edges: .bottom)
-                } else {
-                    ContentUnavailableView("URL invalide", systemImage: "xmark.circle")
-                }
+        ZStack(alignment: .topTrailing) {
+            if let url = newspaper.resolvedURL {
+                PressReaderWebView(
+                    initialURL: url,
+                    archiveURL: newspaper.archiveURL
+                )
+                .ignoresSafeArea()
+            } else {
+                ContentUnavailableView("URL invalide", systemImage: "xmark.circle")
             }
-            .navigationTitle(newspaper.name)
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbarBackground(.visible, for: .navigationBar)
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button("Fermer") { dismiss() }
-                }
+
+            // Bouton fermer flottant
+            Button {
+                dismiss()
+            } label: {
+                Image(systemName: "xmark.circle.fill")
+                    .font(.title)
+                    .foregroundStyle(.white, .black.opacity(0.6))
             }
+            .padding(.top, 56)
+            .padding(.trailing, 16)
         }
     }
 }
