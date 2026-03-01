@@ -18,10 +18,15 @@ struct Newspaper: Identifiable, Codable, Hashable {
     var pressReaderPath: String
     var viewMode: ViewMode = .text
 
+    // FIX: DateFormatter mis en cache — coûteux à instancier à chaque appel
+    private static let dateFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "yyyyMMdd"
+        return f
+    }()
+
     var todayURL: URL? {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "yyyyMMdd"
-        let dateStr = formatter.string(from: Date())
+        let dateStr = Newspaper.dateFormatter.string(from: Date())
         switch viewMode {
         case .text:
             return URL(string: "https://www.pressreader.com/\(pressReaderPath)/\(dateStr)/textview")
