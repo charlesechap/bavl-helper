@@ -29,11 +29,8 @@ struct PressReaderWebView: UIViewRepresentable {
                 [class*="Header"], [class*="nav-bar"], [class*="NavBar"],
                 [class*="top-bar"], [class*="TopBar"] { display: none !important; }
                 body, #root, .app-container { padding-top: 0 !important; margin-top: 0 !important; }
-                /* masquer footer PressReader */
-                .footer, .site-footer, footer, [class*="footer"],
-                [class*="Footer"], [class*="bottom-bar"], [class*="BottomBar"],
-                [class*="article-footer"], [class*="ArticleFooter"],
-                .reader-footer, .text-footer, .content-footer { display: none !important; }
+                /* masquer footer PressReader (art-vote + art-tools-tiny) */
+                .art-vote, .art-tools-tiny { display: none !important; }
             `;
             (document.head || document.documentElement).appendChild(s);
         }
@@ -388,15 +385,14 @@ struct PressReaderSheet: View {
 
     private var isOnArticle: Bool {
         let s = currentURL?.absoluteString ?? ""
-        // article avec ID 15 chiffres, avec ou sans /textview
-        return s.range(of: #"/[0-9]{15}"#, options: .regularExpression) != nil
+        // article: date 8 chiffres suivi d'un ID numérique long (≥10 chiffres)
+        return s.range(of: #"/[0-9]{8}/[0-9]{10,}"#, options: .regularExpression) != nil
     }
 
     private var isOnJournal: Bool {
-        // page du journal (date sans article), avec ou sans /textview
         let s = currentURL?.absoluteString ?? ""
         let hasDate = s.range(of: #"/[0-9]{8}"#, options: .regularExpression) != nil
-        let hasArticle = s.range(of: #"/[0-9]{15}"#, options: .regularExpression) != nil
+        let hasArticle = s.range(of: #"/[0-9]{8}/[0-9]{10,}"#, options: .regularExpression) != nil
         return hasDate && !hasArticle
     }
 
@@ -504,17 +500,19 @@ private struct TerminalBar: View {
                 BarBtn("≡", color: dimColor, action: onArchive)
                 if let url = currentURL {
                     separator
-                    ShareLink(item: url) {
-                        Text("↑")
-                            .font(Font.system(size: 14, weight: .regular, design: .monospaced))
-                            .foregroundStyle(activeColor)
-                            .frame(height: 44)
-                            .padding(.horizontal, 10)
-                    }
+                    BarBtn("shr", color: activeColor, action: {
+                        let av = UIActivityViewController(activityItems: [url], applicationActivities: nil)
+                        if let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+                           let root = scene.windows.first?.rootViewController {
+                            av.popoverPresentationController?.sourceView = root.view
+                            root.present(av, animated: true)
+                        }
+                    })
                 }
             }
         }
         .frame(height: 44)
+        .padding(.horizontal, 8)
         .background(Color.bg)
         .overlay(alignment: .bottom) {
             Rectangle()
