@@ -368,6 +368,30 @@ struct PressReaderWebView: UIViewRepresentable {
             DispatchQueue.main.async { self.webView?.load(URLRequest(url: url)) }
         }
 
+        func sharePDF(presenter: UIViewController) {
+            guard let wv = webView else { return }
+            let config = WKPDFConfiguration()
+            wv.createPDF(configuration: config) { result in
+                DispatchQueue.main.async {
+                    switch result {
+                    case .success(let data):
+                        // Écrire dans un fichier temporaire nommé d'après le titre
+                        let title = wv.title?.replacingOccurrences(of: "/", with: "-") ?? "article"
+                        let filename = "\(title).pdf"
+                        let tmp = FileManager.default.temporaryDirectory.appendingPathComponent(filename)
+                        try? data.write(to: tmp)
+                        let av = UIActivityViewController(activityItems: [tmp], applicationActivities: nil)
+                        av.popoverPresentationController?.sourceView = presenter.view
+                        av.popoverPresentationController?.sourceRect = CGRect(x: presenter.view.bounds.midX, y: 44, width: 0, height: 0)
+                        av.popoverPresentationController?.permittedArrowDirections = .up
+                        presenter.present(av, animated: true)
+                    case .failure(let err):
+                        print("BAVL createPDF error:", err)
+                    }
+                }
+            }
+        }
+
         func goToTextView() {
             // Si on est sur un article: {path}/{date}/{articleId}/textview
             // Sinon: {path}/{date}/textview
@@ -474,6 +498,18 @@ struct PressReaderSheet: View {
                     onNext: { coordinator?.goToNextArticle() },
                     onArchive: { coordinator?.goToArchive() },
                     onJournal: { coordinator?.goToJournal() },
+                    onShare: {
+                        guard let coord = coordinator else { return }
+                        guard let scene = UIApplication.shared.connectedScenes
+                            .compactMap({ $0 as? UIWindowScene })
+                            .first(where: { $0.activationState == .foregroundActive }),
+                              let window = scene.windows.first(where: { $0.isKeyWindow }),
+                              let root = window.rootViewController
+                        else { return }
+                        var presenter = root
+                        while let p = presenter.presentedViewController { presenter = p }
+                        coord.sharePDF(presenter: presenter)
+                    },
                     safeAreaTop: safeTop
                 )
             }
@@ -498,6 +534,7 @@ private struct TerminalBar: View {
     let onNext: () -> Void
     let onArchive: () -> Void
     let onJournal: () -> Void
+    let onShare: () -> Void
 
     var safeAreaTop: CGFloat = 0
 
@@ -528,13 +565,9 @@ private struct TerminalBar: View {
             }
 
             if isOnArticle {
-                BarBtn("←", color: activeColor, action: onJournal)
-                if let url = currentURL {
-                    separator
-                    BarBtn("↑", color: activeColor, action: {
-                        shareURL(url)
-                    })
-                }
+                BarBtn("↩", color: activeColor, action: onJournal)
+                separator
+                BarBtn("↑", color: activeColor, action: onShare)
             }
         }
         .padding(.trailing, 8)
@@ -546,23 +579,6 @@ private struct TerminalBar: View {
                 .frame(height: 0.5)
         }
         .padding(.top, safeAreaTop)
-    }
-
-    private func shareURL(_ url: URL) {
-        guard let scene = UIApplication.shared.connectedScenes
-            .compactMap({ $0 as? UIWindowScene })
-            .first(where: { $0.activationState == .foregroundActive }),
-              let window = scene.windows.first(where: { $0.isKeyWindow }),
-              let root = window.rootViewController
-        else { return }
-        // Remonter jusqu'au presented VC (sheet)
-        var presenter = root
-        while let p = presenter.presentedViewController { presenter = p }
-        let av = UIActivityViewController(activityItems: [url], applicationActivities: nil)
-        av.popoverPresentationController?.sourceView = presenter.view
-        av.popoverPresentationController?.sourceRect = CGRect(x: presenter.view.bounds.midX, y: 44, width: 0, height: 0)
-        av.popoverPresentationController?.permittedArrowDirections = .up
-        presenter.present(av, animated: true)
     }
 
     private var separator: some View {
