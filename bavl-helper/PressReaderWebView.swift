@@ -297,10 +297,11 @@ struct PressReaderWebView: UIViewRepresentable {
 
         private func currentArticleId() -> Int64? {
             guard let path = webView?.url?.path else { return nil }
-            // path: /switzerland/le-temps/20260228/281530822504009  ou /textview
-            let components = path.split(separator: "/")
-            if let last = components.last, let id = Int64(last), id > 1_000_000_000_000 {
-                return id
+            // path: /{pub}/{date}/{articleId}  ou  /{pub}/{date}/{articleId}/textview
+            let components = path.split(separator: "/").map(String.init)
+            // chercher un composant numérique long (articleId) dans les composants
+            for comp in components.reversed() {
+                if let id = Int64(comp), id > 100_000_000_000 { return id }
             }
             return nil
         }
@@ -316,7 +317,9 @@ struct PressReaderWebView: UIViewRepresentable {
         // MARK: - Actions toolbar
 
         func goToPreviousArticle() {
-            guard let current = currentArticleId(),
+            let current = currentArticleId()
+            print("BAVL prev: current=\(current as Any) toc=\(tocArticleIds.count) date=\(currentDate)")
+            guard let current = current,
                   let idx = tocArticleIds.firstIndex(of: current),
                   idx > 0
             else { return }
@@ -324,7 +327,9 @@ struct PressReaderWebView: UIViewRepresentable {
         }
 
         func goToNextArticle() {
-            guard let current = currentArticleId(),
+            let current = currentArticleId()
+            print("BAVL next: current=\(current as Any) toc=\(tocArticleIds.count) date=\(currentDate)")
+            guard let current = current,
                   let idx = tocArticleIds.firstIndex(of: current),
                   idx < tocArticleIds.count - 1
             else { return }
@@ -475,12 +480,13 @@ private struct TerminalBar: View {
 
     var body: some View {
         HStack(spacing: 0) {
-            // Fermer
-            BarBtn("×", color: dimColor, action: onDismiss)
+            // X à gauche
+            BarBtn("X", color: dimColor, action: onDismiss)
+                .padding(.leading, 8)
 
             Spacer()
 
-            // Boutons contextuels
+            // Boutons contextuels à droite
             if isOnArchive {
                 BarBtn("txt", color: activeColor, action: onTxt)
                 separator
@@ -488,28 +494,18 @@ private struct TerminalBar: View {
             }
 
             if isOnJournal {
-                // Sur la page journal: montrer mode actif et permettre de switcher
                 BarBtn("txt", color: viewMode == .text ? activeColor : inactiveColor, action: onTxt)
                 separator
                 BarBtn("pdf", color: viewMode == .layout ? activeColor : inactiveColor, action: onPdf)
-                separator
-                BarBtn("≡", color: dimColor, action: onArchive)
             }
 
             if isOnArticle {
-                BarBtn("◂◂", color: activeColor, action: onPrev)
+                BarBtn("◂", color: activeColor, action: onPrev)
                 separator
-                BarBtn("▸▸", color: activeColor, action: onNext)
-                separator
-                // switch txt/pdf pour l'article courant
-                BarBtn("txt", color: viewMode == .text ? activeColor : inactiveColor, action: onTxt)
-                separator
-                BarBtn("pdf", color: viewMode == .layout ? activeColor : inactiveColor, action: onPdf)
-                separator
-                BarBtn("≡", color: dimColor, action: onArchive)
+                BarBtn("▸", color: activeColor, action: onNext)
                 if let url = currentURL {
                     separator
-                    BarBtn("shr", color: activeColor, action: {
+                    BarBtn("↑", color: activeColor, action: {
                         let av = UIActivityViewController(activityItems: [url], applicationActivities: nil)
                         if let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
                            let root = scene.windows.first?.rootViewController {
@@ -520,8 +516,8 @@ private struct TerminalBar: View {
                 }
             }
         }
+        .padding(.trailing, 8)
         .frame(height: 44)
-        .padding(.horizontal, 8)
         .background(Color.bg)
         .overlay(alignment: .bottom) {
             Rectangle()
