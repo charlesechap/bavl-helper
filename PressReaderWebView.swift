@@ -126,7 +126,11 @@ struct PressReaderWebView: UIViewRepresentable {
         var pressReaderPath: String = ""
 
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-            webView.evaluateJavaScript(PressReaderWebView.injectedJS, completionHandler: nil)
+            let url = webView.url?.absoluteString ?? "nil"
+            print("BAVL didFinish:", url)
+            webView.evaluateJavaScript(PressReaderWebView.injectedJS) { _, err in
+                if let err = err { print("BAVL JS error:", err) }
+            }
         }
 
         func userContentController(_ userContentController: WKUserContentController,
