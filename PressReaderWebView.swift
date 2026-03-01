@@ -3,125 +3,147 @@ import WebKit
 
 // MARK: - PressReaderWebView
 
-/// WKWebView plein écran présenté en sheet.
-/// Injecte du JS pour :
-///   1. Fermer le popup "Bienvenue sur PressReader"
-///   2. Détecter une page blanche (date inexistante) → rediriger vers /archive
 struct PressReaderWebView: UIViewRepresentable {
 
     let initialURL: URL
-    let archiveURL: URL?
+    let pressReaderPath: String  // ex: "switzerland/le-temps"
 
-    // JS exécuté après chaque chargement de page
     private static let injectedJS = """
     (function() {
-        // --- 1. Fermer le popup "Bienvenue" ---
-        // PressReader utilise plusieurs sélecteurs selon la version
-        var selectors = [
-            'button[aria-label="Close"]',
-            'button.welcome-dialog__close',
-            '.modal-close',
-            '[data-testid="welcome-dismiss"]',
-            'button.dismiss',
-            '.welcome-overlay button'
-        ];
+
+        // 1. Masquer la navbar PressReader
+        var style = document.getElementById('__bavl_style');
+        if (!style) {
+            style = document.createElement('style');
+            style.id = '__bavl_style';
+            style.textContent = `
+                .header, .site-header, nav.navbar, [class*="header"],
+                [class*="Header"], [class*="nav-bar"], [class*="NavBar"],
+                [class*="top-bar"], [class*="TopBar"] {
+                    display: none !important;
+                }
+                body, #root, .app-container {
+                    padding-top: 0 !important;
+                    margin-top: 0 !important;
+                }
+            `;
+            (document.head || document.documentElement).appendChild(style);
+        }
+
+        // 2. Fermer le popup "Bienvenue"
         function dismissPopup() {
+            var selectors = [
+                'button[aria-label="Close"]', 'button[aria-label="Fermer"]',
+                'button.welcome-dialog__close', '.modal-close',
+                '[data-testid="welcome-dismiss"]'
+            ];
             for (var i = 0; i < selectors.length; i++) {
                 var btn = document.querySelector(selectors[i]);
                 if (btn) { btn.click(); return true; }
             }
-            // Fallback : chercher un bouton dont le texte contient "fermer" ou "close"
             var buttons = document.querySelectorAll('button');
             for (var j = 0; j < buttons.length; j++) {
-                var t = buttons[j].innerText.toLowerCase().trim();
-                if (t === 'close' || t === 'fermer' || t === '×' || t === 'x') {
+                var t = (buttons[j].innerText || '').toLowerCase().trim();
+                if (t === 'close' || t === 'fermer' || t === 'x' || t === 'x') {
                     buttons[j].click(); return true;
                 }
             }
             return false;
         }
-        // Tenter immédiatement, puis surveiller le DOM
         if (!dismissPopup()) {
-            var observer = new MutationObserver(function(mutations, obs) {
-                if (dismissPopup()) { obs.disconnect(); }
+            var popupObs = new MutationObserver(function(_, obs) {
+                if (dismissPopup()) obs.disconnect();
             });
-            observer.observe(document.body || document.documentElement, { childList: true, subtree: true });
-            // Arrêter après 10s pour ne pas fuiter
-            setTimeout(function() { observer.disconnect(); }, 10000);
+            popupObs.observe(document.documentElement, { childList: true, subtree: true });
+            setTimeout(function() { popupObs.disconnect(); }, 10000);
         }
 
-        // --- 2. Détecter page blanche (textview avec date invalide) ---
-        // On retourne un signal que Swift peut lire via window.webkit.messageHandlers
-        var isBlank = false;
-        // Heuristique : le contenu principal est vide
-        setTimeout(function() {
-            var article = document.querySelector('article, .article-content, .text-content, [class*="article"]');
-            var isEmpty = !article || article.innerText.trim().length < 50;
-            // Vérifier aussi si l'URL contient une date et que le titre indique "not found" / 404
-            var title = document.title || '';
-            var notFound = title.toLowerCase().includes('not found') ||
-                           title.toLowerCase().includes('404') ||
-                           title === '';
-            if ((isEmpty || notFound) && window.location.pathname.includes('/textview')) {
-                if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.pageBlank) {
+        var path = window.location.pathname;
+
+        // 3. Sur /archive : extraire la derniere date disponible
+        if (path.endsWith('/archive')) {
+            function extractLatestDate() {
+                var links = document.querySelectorAll('a[href]');
+                var dates = [];
+                var re = /\\/([0-9]{8})(?:\\/|$)/;
+                for (var i = 0; i < links.length; i++) {
+                    var m = links[i].getAttribute('href').match(re);
+                    if (m) dates.push(m[1]);
+                }
+                if (dates.length === 0) return false;
+                dates.sort();
+                var latest = dates[dates.length - 1];
+                window.webkit.messageHandlers.lastEdition.postMessage(latest);
+                return true;
+            }
+            if (!extractLatestDate()) {
+                var archObs = new MutationObserver(function(_, obs) {
+                    if (extractLatestDate()) obs.disconnect();
+                });
+                archObs.observe(document.documentElement, { childList: true, subtree: true });
+                setTimeout(function() { archObs.disconnect(); }, 8000);
+            }
+        }
+
+        // 4. Sur /textview : detecter page blanche
+        if (path.indexOf('/textview') !== -1) {
+            setTimeout(function() {
+                var article = document.querySelector('article, .article-content, .text-content');
+                var isEmpty = !article || article.innerText.trim().length < 50;
+                var title = document.title || '';
+                var notFound = title.toLowerCase().indexOf('not found') !== -1
+                            || title.toLowerCase().indexOf('404') !== -1;
+                if (isEmpty || notFound) {
                     window.webkit.messageHandlers.pageBlank.postMessage(window.location.href);
                 }
-            }
-        }, 2500);
+            }, 3000);
+        }
+
     })();
     """
 
     func makeUIView(context: Context) -> WKWebView {
         let config = WKWebViewConfiguration()
-        config.websiteDataStore = .default()  // partage les cookies avec l'auth WebView
+        config.websiteDataStore = .default()
+        config.userContentController.add(context.coordinator, name: "lastEdition")
         config.userContentController.add(context.coordinator, name: "pageBlank")
         let wv = WKWebView(frame: .zero, configuration: config)
         wv.navigationDelegate = context.coordinator
         wv.allowsBackForwardNavigationGestures = true
         context.coordinator.webView = wv
-        context.coordinator.archiveURL = archiveURL
+        context.coordinator.pressReaderPath = pressReaderPath
         wv.load(URLRequest(url: initialURL))
         return wv
     }
 
     func updateUIView(_ uiView: WKWebView, context: Context) {}
-
     func makeCoordinator() -> Coordinator { Coordinator() }
 
     // MARK: - Coordinator
 
     class Coordinator: NSObject, WKNavigationDelegate, WKScriptMessageHandler {
         weak var webView: WKWebView?
-        var archiveURL: URL?
+        var pressReaderPath: String = ""
 
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
             webView.evaluateJavaScript(PressReaderWebView.injectedJS, completionHandler: nil)
         }
 
-        // Réception du message "pageBlank"
         func userContentController(_ userContentController: WKUserContentController,
                                    didReceive message: WKScriptMessage) {
-            guard message.name == "pageBlank" else { return }
-            // Rediriger vers la page d'archive du journal
-            let target: URL
-            if let archive = archiveURL {
-                target = archive
-            } else if let current = webView?.url {
-                // Construire l'URL d'archive à partir de l'URL courante
-                // Ex: https://pressreader.com/switzerland/le-temps/20250301/textview
-                //  → https://pressreader.com/switzerland/le-temps/archive
-                var components = URLComponents(url: current, resolvingAgainstBaseURL: false)
-                components?.path = current.pathComponents
-                    .prefix(3) // ["", "switzerland", "le-temps"]
-                    .joined(separator: "/")
-                    .replacingOccurrences(of: "//", with: "/")
-                    + "/archive"
-                target = components?.url ?? current
-            } else {
-                return
-            }
-            DispatchQueue.main.async {
-                self.webView?.load(URLRequest(url: target))
+            switch message.name {
+            case "lastEdition":
+                guard let date = message.body as? String,
+                      let url = URL(string: "https://www.pressreader.com/\(pressReaderPath)/\(date)/textview")
+                else { return }
+                DispatchQueue.main.async { self.webView?.load(URLRequest(url: url)) }
+
+            case "pageBlank":
+                guard let url = URL(string: "https://www.pressreader.com/\(pressReaderPath)/archive")
+                else { return }
+                DispatchQueue.main.async { self.webView?.load(URLRequest(url: url)) }
+
+            default: break
             }
         }
     }
@@ -129,33 +151,29 @@ struct PressReaderWebView: UIViewRepresentable {
 
 // MARK: - PressReaderSheet
 
-/// Vue sheet complète avec bouton Fermer flottant.
 struct PressReaderSheet: View {
     let newspaper: Newspaper
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
-        ZStack(alignment: .topTrailing) {
+        ZStack(alignment: .topLeading) {
             if let url = newspaper.resolvedURL {
                 PressReaderWebView(
                     initialURL: url,
-                    archiveURL: newspaper.archiveURL
+                    pressReaderPath: newspaper.pressReaderPath
                 )
                 .ignoresSafeArea()
             } else {
                 ContentUnavailableView("URL invalide", systemImage: "xmark.circle")
             }
 
-            // Bouton fermer flottant
-            Button {
-                dismiss()
-            } label: {
+            Button { dismiss() } label: {
                 Image(systemName: "xmark.circle.fill")
                     .font(.title)
                     .foregroundStyle(.white, .black.opacity(0.6))
             }
             .padding(.top, 56)
-            .padding(.trailing, 16)
+            .padding(.leading, 16)
         }
     }
 }
