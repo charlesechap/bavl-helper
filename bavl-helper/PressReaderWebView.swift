@@ -459,7 +459,7 @@ struct PressReaderSheet: View {
                 Color.bg.ignoresSafeArea()
 
                 // WebView plein écran, commence sous la barre custom
-                if let url = newspaper.resolvedURL ?? newspaper.archiveURL {
+                if let url = newspaper.archiveURL {
                     _PressReaderWebViewBridge(
                         initialURL: url,
                         pressReaderPath: newspaper.pressReaderPath,
