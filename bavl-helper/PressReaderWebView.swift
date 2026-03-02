@@ -60,32 +60,31 @@ struct PressReaderWebView: UIViewRepresentable {
 
         var path = window.location.pathname;
 
-        // 3. Sur /archive : attendre le SPA puis extraire issueId et date
+        // 3. Sur /archive : attendre le SPA puis extraire la date depuis les liens
         if (path.indexOf('/archive') !== -1) {
             function tryExtract(attempts) {
                 var p = window.preset || {};
                 var token = p.bearerToken || '';
-                // Chercher l'issueId dans le DOM ou window après rendu SPA
-                var issueEl = document.querySelector('[data-issue-id]');
-                var issueId = issueEl ? issueEl.getAttribute('data-issue-id') : null;
-                if (!issueId) {
-                    // Chercher dans les liens de la page
-                    var links = document.querySelectorAll('a[href]');
-                    for (var i = 0; i < links.length; i++) {
-                        var href = links[i].href || '';
-                        var m = href.match(/\/([0-9]{8})(?:\/|$)/);
-                        if (m && m[1] >= '20200101' && m[1] <= '20301231') {
-                            window.webkit.messageHandlers.bearerToken.postMessage(token + '|DATE:' + m[1]);
-                            return;
+                // Chercher une date YYYYMMDD dans les hrefs sans regex (pas de backslash)
+                var links = document.querySelectorAll('a[href]');
+                for (var i = 0; i < links.length; i++) {
+                    var href = links[i].href || '';
+                    var parts = href.split('/');
+                    for (var j = 0; j < parts.length; j++) {
+                        var seg = parts[j];
+                        if (seg.length === 8) {
+                            var n = Number(seg);
+                            if (n >= 20200101 && n <= 20301231) {
+                                window.webkit.messageHandlers.bearerToken.postMessage(token + '|DATE:' + seg);
+                                return;
+                            }
                         }
                     }
                 }
-                if (token) {
-                    window.webkit.messageHandlers.bearerToken.postMessage(token);
-                } else if (attempts > 0) {
-                    setTimeout(function() { tryExtract(attempts - 1); }, 300);
+                if (attempts > 0) {
+                    setTimeout(function() { tryExtract(attempts - 1); }, 400);
                 } else {
-                    window.webkit.messageHandlers.bearerToken.postMessage('');
+                    window.webkit.messageHandlers.bearerToken.postMessage(token);
                 }
             }
             setTimeout(function() { tryExtract(5); }, 800);
