@@ -186,8 +186,9 @@ struct PressReaderWebView: UIViewRepresentable {
                   let url = URL(string: "https://ingress.pressreader.com/services/issues?cid=\(encoded)&count=10")
             else { loadFallbackDate(); return }
 
-            var request = URLRequest(url: url, timeoutInterval: 10)
+            var request = URLRequest(url: url, timeoutInterval: 8)
             request.setValue("application/json", forHTTPHeaderField: "Accept")
+            request.setValue("Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148", forHTTPHeaderField: "User-Agent")
             print("BAVL API call ->", url.absoluteString)
             URLSession.shared.dataTask(with: request) { [weak self] data, resp, error in
                 guard let self = self else { return }
@@ -212,15 +213,18 @@ struct PressReaderWebView: UIViewRepresentable {
         }
 
         private func extractLatestDate(from json: String) -> String? {
-            let pattern = "[^0-9]([0-9]{8})[^0-9]"
-            guard let regex = try? NSRegularExpression(pattern: pattern) else { return nil }
-            let padded = " \(json) "
-            let range = NSRange(padded.startIndex..., in: padded)
-            var dates: [String] = []
-            regex.enumerateMatches(in: padded, range: range) { match, _, _ in
-                guard let match = match, let r = Range(match.range(at: 1), in: padded) else { return }
-                let d = String(padded[r])
-                if d >= "20200101" && d <= "20301231" { dates.append(d) }
+            guard let data = json.data(using: .utf8),
+                  let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let issues = root["issues"] as? [String: Any]
+            else { return nil }
+            // Chaque issue a un champ "d" = "YYYYMMDD"
+            let dates = issues.values.compactMap { val -> String? in
+                guard let issue = val as? [String: Any],
+                      let d = issue["d"] as? String,
+                      d.count == 8,
+                      d >= "20200101", d <= "20301231"
+                else { return nil }
+                return d
             }
             return dates.sorted().last
         }
