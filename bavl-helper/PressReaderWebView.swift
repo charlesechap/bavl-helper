@@ -183,50 +183,32 @@ struct PressReaderWebView: UIViewRepresentable {
 
         private func fetchLastEditionViaAPI(bearerToken: String) {
             guard let encoded = pressReaderPath.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
-                  let url = URL(string: "https://ingress.pressreader.com/services/catalog/issues?cid=\(encoded)&count=3")
+                  let url = URL(string: "https://ingress.pressreader.com/services/issues?cid=\(encoded)&count=10")
             else { loadFallbackDate(); return }
 
-            // Copier les cookies WebKit vers URLSession
-            let cookieStore = WKWebsiteDataStore.default().httpCookieStore
-            cookieStore.getAllCookies { cookies in
-                let config = URLSessionConfiguration.default
-                config.httpCookieStorage = HTTPCookieStorage.shared
-                for cookie in cookies {
-                    HTTPCookieStorage.shared.setCookie(cookie)
+            var request = URLRequest(url: url, timeoutInterval: 10)
+            request.setValue("application/json", forHTTPHeaderField: "Accept")
+            print("BAVL API call ->", url.absoluteString)
+            URLSession.shared.dataTask(with: request) { [weak self] data, resp, error in
+                guard let self = self else { return }
+                if let http = resp as? HTTPURLResponse {
+                    print("BAVL API status:", http.statusCode)
                 }
-                var request = URLRequest(url: url, timeoutInterval: 10)
-                request.setValue("Bearer \(bearerToken)", forHTTPHeaderField: "Authorization")
-                request.setValue("application/json", forHTTPHeaderField: "Accept")
-                request.setValue("https://www.pressreader.com", forHTTPHeaderField: "Origin")
-                request.setValue("https://www.pressreader.com/", forHTTPHeaderField: "Referer")
-                print("BAVL API call ->", url.absoluteString)
-                URLSession(configuration: config).dataTask(with: request) { [weak self] data, resp, error in
-                    guard let self = self else { return }
-                    if let http = resp as? HTTPURLResponse {
-                        print("BAVL API status:", http.statusCode)
-                    }
-                    guard let data = data, error == nil else {
-                        print("BAVL API error:", error?.localizedDescription ?? "nil")
-                        self.loadFallbackDate(); return
-                    }
-                    let raw = String(data: data, encoding: .utf8) ?? ""
-                    print("BAVL API response (first 300):", String(raw.prefix(300)))
-                    if let parsed = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                       let issues = parsed["Issues"] as? [[String: Any]],
-                       let first = issues.first,
-                       let issueId = first["Issue"] as? String, !issueId.isEmpty {
-                        print("BAVL issueId:", issueId)
-                        self.currentIssueId = issueId
-                        self.loadTOC(issueId: issueId)
-                    }
-                    if let date = self.extractLatestDate(from: raw) {
-                        print("BAVL date trouvée:", date)
-                        self.navigateToTextView(date: date)
-                    } else {
-                        self.loadFallbackDate()
-                    }
-                }.resume()
-            }
+                guard let data = data, error == nil else {
+                    print("BAVL API error:", error?.localizedDescription ?? "nil")
+                    self.loadFallbackDate(); return
+                }
+                let raw = String(data: data, encoding: .utf8) ?? ""
+                print("BAVL API response (first 300):", String(raw.prefix(300)))
+                // Structure: {"issues": {"id": {"d": "YYYYMMDD", ...}}}
+                // Extraire la date la plus récente
+                if let date = self.extractLatestDate(from: raw) {
+                    print("BAVL date trouvée:", date)
+                    self.navigateToTextView(date: date)
+                } else {
+                    self.loadFallbackDate()
+                }
+            }.resume()
         }
 
         private func extractLatestDate(from json: String) -> String? {
