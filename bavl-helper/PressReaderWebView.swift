@@ -89,15 +89,7 @@ struct PressReaderWebView: UIViewRepresentable {
             if (titleEl) titleObs.observe(titleEl, {childList:true, subtree:true, characterData:true});
             setTimeout(function() { titleObs.disconnect(); }, 5000);
 
-            setTimeout(function() {
-                var article = document.querySelector('article, .article-content, .text-content');
-                var isEmpty = !article || article.innerText.trim().length < 50;
-                var title = document.title || '';
-                var notFound = title.toLowerCase().indexOf('not found') !== -1 || title === '';
-                if (isEmpty || notFound) {
-                    window.webkit.messageHandlers.pageBlank.postMessage(window.location.href);
-                }
-            }, 3000);
+        // pageBlank supprimé: le SPA PressReader charge en async, faux positifs garantis
         }
 
     })();
@@ -174,12 +166,6 @@ struct PressReaderWebView: UIViewRepresentable {
                 } else {
                     fetchLastEditionViaAPI(bearerToken: token)
                 }
-
-            case "pageBlank":
-                guard let url = URL(string: "https://www.pressreader.com/\(pressReaderPath)/archive")
-                else { return }
-                print("BAVL pageBlank -> retour archive")
-                DispatchQueue.main.async { self.webView?.load(URLRequest(url: url)) }
 
             case "pageTitle":
                 let title = message.body as? String ?? ""
@@ -471,7 +457,7 @@ struct PressReaderSheet: View {
                 Color.bg.ignoresSafeArea()
 
                 // WebView plein écran, commence sous la barre custom
-                if let url = newspaper.archiveURL {
+                if let url = newspaper.resolvedURL ?? newspaper.archiveURL {
                     _PressReaderWebViewBridge(
                         initialURL: url,
                         pressReaderPath: newspaper.pressReaderPath,
