@@ -531,9 +531,10 @@ private struct TerminalBar: View {
 
     var body: some View {
         HStack(spacing: 0) {
-            // X à gauche
-            BarBtn("X", color: dimColor, action: onDismiss)
-                .padding(.leading, 8)
+            // ‹ à gauche : dismiss depuis archive/journal, retour journal depuis article
+            let backAction: () -> Void = isOnArticle ? onJournal : onDismiss
+            BarBtn("‹", color: activeColor, action: backAction)
+                .padding(.leading, 16)
 
             Spacer()
 
@@ -551,12 +552,10 @@ private struct TerminalBar: View {
             }
 
             if isOnArticle {
-                BarBtn("↩", color: activeColor, action: onJournal)
-                separator
                 BarBtn("↑", color: activeColor, action: onShare)
             }
         }
-        .padding(.trailing, 8)
+        .padding(.trailing, 16)
         .frame(height: 44)
         .background(Color.bg)
         .overlay(alignment: .bottom) {
