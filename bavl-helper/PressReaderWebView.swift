@@ -60,21 +60,35 @@ struct PressReaderWebView: UIViewRepresentable {
 
         var path = window.location.pathname;
 
-        // 3. Sur /archive : extraire le bearer token et l'envoyer a Swift
+        // 3. Sur /archive : attendre le SPA puis extraire issueId et date
         if (path.indexOf('/archive') !== -1) {
-            var token = (window.preset && window.preset.bearerToken) ? window.preset.bearerToken : null;
-            if (token) {
-                window.webkit.messageHandlers.bearerToken.postMessage(token);
-            } else {
-                setTimeout(function() {
-                    var t2 = (window.preset && window.preset.bearerToken) ? window.preset.bearerToken : null;
-                    if (t2) {
-                        window.webkit.messageHandlers.bearerToken.postMessage(t2);
-                    } else {
-                        window.webkit.messageHandlers.bearerToken.postMessage('');
+            function tryExtract(attempts) {
+                var p = window.preset || {};
+                var token = p.bearerToken || '';
+                // Chercher l'issueId dans le DOM ou window après rendu SPA
+                var issueEl = document.querySelector('[data-issue-id]');
+                var issueId = issueEl ? issueEl.getAttribute('data-issue-id') : null;
+                if (!issueId) {
+                    // Chercher dans les liens de la page
+                    var links = document.querySelectorAll('a[href]');
+                    for (var i = 0; i < links.length; i++) {
+                        var href = links[i].href || '';
+                        var m = href.match(/\/([0-9]{8})(?:\/|$)/);
+                        if (m && m[1] >= '20200101' && m[1] <= '20301231') {
+                            window.webkit.messageHandlers.bearerToken.postMessage(token + '|DATE:' + m[1]);
+                            return;
+                        }
                     }
-                }, 500);
+                }
+                if (token) {
+                    window.webkit.messageHandlers.bearerToken.postMessage(token);
+                } else if (attempts > 0) {
+                    setTimeout(function() { tryExtract(attempts - 1); }, 300);
+                } else {
+                    window.webkit.messageHandlers.bearerToken.postMessage('');
+                }
             }
+            setTimeout(function() { tryExtract(5); }, 800);
         }
 
         // 4. Sur /textview : envoyer le titre et detecter page blanche
@@ -161,8 +175,18 @@ struct PressReaderWebView: UIViewRepresentable {
             switch message.name {
 
             case "bearerToken":
-                let token = message.body as? String ?? ""
-                print("BAVL bearerToken received, length:", token.count)
+                let body = message.body as? String ?? ""
+                print("BAVL bearerToken body:", String(body.prefix(50)))
+                // Format possible: "TOKEN|DATE:YYYYMMDD" ou juste "TOKEN"
+                if body.contains("|DATE:") {
+                    let parts = body.components(separatedBy: "|DATE:")
+                    if parts.count == 2, parts[1].count == 8 {
+                        print("BAVL date depuis DOM:", parts[1])
+                        navigateToTextView(date: parts[1])
+                        return
+                    }
+                }
+                let token = body.components(separatedBy: "|").first ?? body
                 if token.isEmpty {
                     loadFallbackDate()
                 } else {
