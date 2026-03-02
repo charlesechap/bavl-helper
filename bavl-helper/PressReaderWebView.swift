@@ -63,7 +63,7 @@ struct PressReaderWebView: UIViewRepresentable {
         // 3. Sur /archive : fetch API depuis le WebView (même session) pour obtenir la dernière date
         if (path.indexOf('/archive') !== -1) {
             function doFetch(token) {
-                var cid = window.location.pathname.replace('/archive', '').replace(/^\//, '');
+                var p = window.location.pathname.replace('/archive', ''); var cid = p.charAt(0) === '/' ? p.slice(1) : p;
                 var url = 'https://ingress.pressreader.com/services/catalog/issues?cid=' + encodeURIComponent(cid) + '&count=3';
                 fetch(url, {
                     headers: {
