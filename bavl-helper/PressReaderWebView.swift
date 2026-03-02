@@ -60,34 +60,21 @@ struct PressReaderWebView: UIViewRepresentable {
 
         var path = window.location.pathname;
 
-        // 3. Sur /archive : attendre le SPA puis extraire la date depuis les liens
+        // 3. Sur /archive : extraire le bearer token et l'envoyer a Swift
         if (path.indexOf('/archive') !== -1) {
-            function tryExtract(attempts) {
-                var p = window.preset || {};
-                var token = p.bearerToken || '';
-                // Chercher une date YYYYMMDD dans les hrefs sans regex (pas de backslash)
-                var links = document.querySelectorAll('a[href]');
-                for (var i = 0; i < links.length; i++) {
-                    var href = links[i].href || '';
-                    var parts = href.split('/');
-                    for (var j = 0; j < parts.length; j++) {
-                        var seg = parts[j];
-                        if (seg.length === 8) {
-                            var n = Number(seg);
-                            if (n >= 20200101 && n <= 20301231) {
-                                window.webkit.messageHandlers.bearerToken.postMessage(token + '|DATE:' + seg);
-                                return;
-                            }
-                        }
+            var token = (window.preset && window.preset.bearerToken) ? window.preset.bearerToken : null;
+            if (token) {
+                window.webkit.messageHandlers.bearerToken.postMessage(token);
+            } else {
+                setTimeout(function() {
+                    var t2 = (window.preset && window.preset.bearerToken) ? window.preset.bearerToken : null;
+                    if (t2) {
+                        window.webkit.messageHandlers.bearerToken.postMessage(t2);
+                    } else {
+                        window.webkit.messageHandlers.bearerToken.postMessage('');
                     }
-                }
-                if (attempts > 0) {
-                    setTimeout(function() { tryExtract(attempts - 1); }, 400);
-                } else {
-                    window.webkit.messageHandlers.bearerToken.postMessage(token);
-                }
+                }, 500);
             }
-            setTimeout(function() { tryExtract(5); }, 800);
         }
 
         // 4. Sur /textview : envoyer le titre et detecter page blanche
@@ -174,18 +161,8 @@ struct PressReaderWebView: UIViewRepresentable {
             switch message.name {
 
             case "bearerToken":
-                let body = message.body as? String ?? ""
-                print("BAVL bearerToken body:", String(body.prefix(50)))
-                // Format possible: "TOKEN|DATE:YYYYMMDD" ou juste "TOKEN"
-                if body.contains("|DATE:") {
-                    let parts = body.components(separatedBy: "|DATE:")
-                    if parts.count == 2, parts[1].count == 8 {
-                        print("BAVL date depuis DOM:", parts[1])
-                        navigateToTextView(date: parts[1])
-                        return
-                    }
-                }
-                let token = body.components(separatedBy: "|").first ?? body
+                let token = message.body as? String ?? ""
+                print("BAVL bearerToken received, length:", token.count)
                 if token.isEmpty {
                     loadFallbackDate()
                 } else {
@@ -205,29 +182,32 @@ struct PressReaderWebView: UIViewRepresentable {
         // MARK: - API
 
         private func fetchLastEditionViaAPI(bearerToken: String) {
-            guard let encoded = pressReaderPath.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
-                  let url = URL(string: "https://ingress.pressreader.com/services/issues?cid=\(encoded)&count=10")
+            let cid = pressReaderPath
+            guard let encoded = cid.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
+                  let url = URL(string: "https://ingress.pressreader.com/services/catalog/issues?cid=\(encoded)&count=3")
             else { loadFallbackDate(); return }
 
-            var request = URLRequest(url: url, timeoutInterval: 8)
+            var request = URLRequest(url: url, timeoutInterval: 10)
+            request.setValue("Bearer \(bearerToken)", forHTTPHeaderField: "Authorization")
             request.setValue("application/json", forHTTPHeaderField: "Accept")
-            request.setValue("Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148", forHTTPHeaderField: "User-Agent")
             print("BAVL API call ->", url.absoluteString)
-            URLSession.shared.dataTask(with: request) { [weak self] data, resp, error in
+
+            URLSession.shared.dataTask(with: request) { [weak self] data, _, error in
                 guard let self = self else { return }
-                if let http = resp as? HTTPURLResponse {
-                    print("BAVL API status:", http.statusCode)
-                }
-                guard let data = data, error == nil else {
-                    print("BAVL API error:", error?.localizedDescription ?? "nil")
-                    self.loadFallbackDate(); return
-                }
+                guard let data = data, error == nil else { self.loadFallbackDate(); return }
                 let raw = String(data: data, encoding: .utf8) ?? ""
                 print("BAVL API response (first 300):", String(raw.prefix(300)))
-                // Structure: {"issues": {"id": {"d": "YYYYMMDD", ...}}}
-                // Extraire la date la plus récente
+                // Extraire issueId (ex: "f1652026022800000051001001") depuis la réponse
+                if let parsed = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                   let issues = parsed["Issues"] as? [[String: Any]],
+                   let first = issues.first,
+                   let issueId = first["Issue"] as? String, !issueId.isEmpty {
+                    print("BAVL issueId trouvé:", issueId)
+                    self.currentIssueId = issueId
+                    self.loadTOC(issueId: issueId)
+                }
                 if let date = self.extractLatestDate(from: raw) {
-                    print("BAVL date trouvée:", date)
+                    print("BAVL API date trouvee:", date)
                     self.navigateToTextView(date: date)
                 } else {
                     self.loadFallbackDate()
@@ -236,18 +216,15 @@ struct PressReaderWebView: UIViewRepresentable {
         }
 
         private func extractLatestDate(from json: String) -> String? {
-            guard let data = json.data(using: .utf8),
-                  let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                  let issues = root["issues"] as? [String: Any]
-            else { return nil }
-            // Chaque issue a un champ "d" = "YYYYMMDD"
-            let dates = issues.values.compactMap { val -> String? in
-                guard let issue = val as? [String: Any],
-                      let d = issue["d"] as? String,
-                      d.count == 8,
-                      d >= "20200101", d <= "20301231"
-                else { return nil }
-                return d
+            let pattern = "[^0-9]([0-9]{8})[^0-9]"
+            guard let regex = try? NSRegularExpression(pattern: pattern) else { return nil }
+            let padded = " \(json) "
+            let range = NSRange(padded.startIndex..., in: padded)
+            var dates: [String] = []
+            regex.enumerateMatches(in: padded, range: range) { match, _, _ in
+                guard let match = match, let r = Range(match.range(at: 1), in: padded) else { return }
+                let d = String(padded[r])
+                if d >= "20200101" && d <= "20301231" { dates.append(d) }
             }
             return dates.sorted().last
         }
@@ -482,7 +459,7 @@ struct PressReaderSheet: View {
                 Color.bg.ignoresSafeArea()
 
                 // WebView plein écran, commence sous la barre custom
-                if let url = newspaper.archiveURL {
+                if let url = newspaper.resolvedURL ?? newspaper.archiveURL {
                     _PressReaderWebViewBridge(
                         initialURL: url,
                         pressReaderPath: newspaper.pressReaderPath,
