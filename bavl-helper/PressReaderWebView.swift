@@ -60,32 +60,19 @@ struct PressReaderWebView: UIViewRepresentable {
 
         var path = window.location.pathname;
 
-        // 3. Sur /archive : fetch API depuis le WebView (même session) pour obtenir la dernière date
+        // 3. Sur /archive : extraire le bearer token et l'envoyer a Swift
         if (path.indexOf('/archive') !== -1) {
-            function doFetch(token) {
-                var p = window.location.pathname.replace('/archive', ''); var cid = p.charAt(0) === '/' ? p.slice(1) : p;
-                var url = 'https://ingress.pressreader.com/services/catalog/issues?cid=' + encodeURIComponent(cid) + '&count=3';
-                fetch(url, {
-                    headers: {
-                        'Authorization': 'Bearer ' + token,
-                        'Accept': 'application/json'
-                    }
-                })
-                .then(function(r) { return r.text(); })
-                .then(function(text) {
-                    window.webkit.messageHandlers.bearerToken.postMessage(text);
-                })
-                .catch(function() {
-                    window.webkit.messageHandlers.bearerToken.postMessage('');
-                });
-            }
             var token = (window.preset && window.preset.bearerToken) ? window.preset.bearerToken : null;
             if (token) {
-                doFetch(token);
+                window.webkit.messageHandlers.bearerToken.postMessage(token);
             } else {
                 setTimeout(function() {
                     var t2 = (window.preset && window.preset.bearerToken) ? window.preset.bearerToken : null;
-                    doFetch(t2 || '');
+                    if (t2) {
+                        window.webkit.messageHandlers.bearerToken.postMessage(t2);
+                    } else {
+                        window.webkit.messageHandlers.bearerToken.postMessage('');
+                    }
                 }, 500);
             }
         }
@@ -174,25 +161,12 @@ struct PressReaderWebView: UIViewRepresentable {
             switch message.name {
 
             case "bearerToken":
-                let raw = message.body as? String ?? ""
-                print("BAVL catalog response length:", raw.count)
-                print("BAVL catalog response (first 300):", String(raw.prefix(300)))
-                if raw.isEmpty {
+                let token = message.body as? String ?? ""
+                print("BAVL bearerToken received, length:", token.count)
+                if token.isEmpty {
                     loadFallbackDate()
-                } else if let date = extractLatestDate(from: raw) {
-                    print("BAVL date trouvée:", date)
-                    // Extraire aussi l'issueId pour le TOC
-                    if let data = raw.data(using: .utf8),
-                       let parsed = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                       let issues = parsed["Issues"] as? [[String: Any]],
-                       let first = issues.first,
-                       let issueId = first["Issue"] as? String, !issueId.isEmpty {
-                        self.currentIssueId = issueId
-                        self.loadTOC(issueId: issueId)
-                    }
-                    navigateToTextView(date: date)
                 } else {
-                    loadFallbackDate()
+                    fetchLastEditionViaAPI(bearerToken: token)
                 }
 
             case "pageTitle":
@@ -207,7 +181,53 @@ struct PressReaderWebView: UIViewRepresentable {
 
         // MARK: - API
 
-        // fetchLastEditionViaAPI supprimé: appel fait en JS fetch depuis le WebView
+        private func fetchLastEditionViaAPI(bearerToken: String) {
+            guard let encoded = pressReaderPath.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
+                  let url = URL(string: "https://ingress.pressreader.com/services/catalog/issues?cid=\(encoded)&count=3")
+            else { loadFallbackDate(); return }
+
+            // Copier les cookies WebKit vers URLSession
+            let cookieStore = WKWebsiteDataStore.default().httpCookieStore
+            cookieStore.getAllCookies { cookies in
+                let config = URLSessionConfiguration.default
+                config.httpCookieStorage = HTTPCookieStorage.shared
+                for cookie in cookies {
+                    HTTPCookieStorage.shared.setCookie(cookie)
+                }
+                var request = URLRequest(url: url, timeoutInterval: 10)
+                request.setValue("Bearer \(bearerToken)", forHTTPHeaderField: "Authorization")
+                request.setValue("application/json", forHTTPHeaderField: "Accept")
+                request.setValue("https://www.pressreader.com", forHTTPHeaderField: "Origin")
+                request.setValue("https://www.pressreader.com/", forHTTPHeaderField: "Referer")
+                print("BAVL API call ->", url.absoluteString)
+                URLSession(configuration: config).dataTask(with: request) { [weak self] data, resp, error in
+                    guard let self = self else { return }
+                    if let http = resp as? HTTPURLResponse {
+                        print("BAVL API status:", http.statusCode)
+                    }
+                    guard let data = data, error == nil else {
+                        print("BAVL API error:", error?.localizedDescription ?? "nil")
+                        self.loadFallbackDate(); return
+                    }
+                    let raw = String(data: data, encoding: .utf8) ?? ""
+                    print("BAVL API response (first 300):", String(raw.prefix(300)))
+                    if let parsed = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                       let issues = parsed["Issues"] as? [[String: Any]],
+                       let first = issues.first,
+                       let issueId = first["Issue"] as? String, !issueId.isEmpty {
+                        print("BAVL issueId:", issueId)
+                        self.currentIssueId = issueId
+                        self.loadTOC(issueId: issueId)
+                    }
+                    if let date = self.extractLatestDate(from: raw) {
+                        print("BAVL date trouvée:", date)
+                        self.navigateToTextView(date: date)
+                    } else {
+                        self.loadFallbackDate()
+                    }
+                }.resume()
+            }
+        }
 
         private func extractLatestDate(from json: String) -> String? {
             let pattern = "[^0-9]([0-9]{8})[^0-9]"
