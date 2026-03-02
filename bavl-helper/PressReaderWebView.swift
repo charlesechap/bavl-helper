@@ -31,6 +31,8 @@ struct PressReaderWebView: UIViewRepresentable {
                 body, #root, .app-container { padding-top: 0 !important; margin-top: 0 !important; }
                 /* masquer footer PressReader (art-vote + art-tools-tiny) */
                 .art-vote, .art-tools-tiny { display: none !important; }
+                /* masquer popup contextuel options (Commenter, Signet, etc.) */
+                .pop.pop-default { display: none !important; }
             `;
             (document.head || document.documentElement).appendChild(s);
         }
@@ -533,7 +535,7 @@ private struct TerminalBar: View {
         HStack(spacing: 0) {
             // ‹ à gauche : dismiss depuis archive/journal, retour journal depuis article
             let backAction: () -> Void = isOnArticle ? onJournal : onDismiss
-            BarBtn("‹", color: activeColor, action: backAction)
+            BarBtn("←", color: activeColor, action: backAction)
                 .padding(.leading, 16)
 
             Spacer()
