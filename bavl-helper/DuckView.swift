@@ -11,7 +11,6 @@ private struct S {
     init(_ t: String, _ c: Color = Color(white: 0.82)) { self.t = t; self.c = c }
 }
 
-// iOS 26 : Text + Text deprecated → HStack de Text
 @ViewBuilder
 private func duckLine(_ segs: [S]) -> some View {
     HStack(spacing: 0) {
@@ -24,7 +23,6 @@ private func duckLine(_ segs: [S]) -> some View {
     .fixedSize()
 }
 
-// frame_couch
 private let couch: [[S]] = [
     [S("               ")],
     [S("   "), S("__", dkGreen), S("        ")],
@@ -32,7 +30,6 @@ private let couch: [[S]] = [
     [S("               ")],
 ]
 
-// marche_A — patte avant "_ ."
 private let marcheA: [[S]] = [
     [S("      "), S("__", dkGreen), S("       ")],
     [S("   __("), S("o", dkWhite), S(")"), S(">", dkYellow), S("     ")],
@@ -40,7 +37,6 @@ private let marcheA: [[S]] = [
     [S("    "), S("_ .", dkYellow)],
 ]
 
-// marche_B — patte arrière ". _"
 private let marcheB: [[S]] = [
     [S("      "), S("__", dkGreen), S("       ")],
     [S("   __("), S("o", dkWhite), S(")"), S(">", dkYellow), S("     ")],
@@ -70,7 +66,8 @@ struct DuckHeaderView: View {
                 }
                 .offset(x: positionX)
             }
-            .clipped()
+            // Pas de .clipped() ici — on laisse le canard sortir naturellement
+            // La vue parente (ZStack pleine largeur) gère le clipping
             .onChange(of: walking) { _, isWalking in
                 if isWalking {
                     startWalk(screenWidth: geo.size.width)
@@ -86,40 +83,48 @@ struct DuckHeaderView: View {
             }
         }
         .frame(height: 60)
+        .clipped()  // clipping sur le frame final pleine largeur
     }
 
+    // Séquence :
+    // 1. Pause couché à x=0 pendant 0.6s
+    // 2. Marche de x=0 jusqu'à x=screenWidth+120 (sort complètement à droite)
     private func startWalk(screenWidth: CGFloat) {
         guard !started else { return }
         started   = true
         walkDone  = false
+        frame     = couch
+        positionX = 0  // démarre couché à sa position normale
 
-        let duckW: CGFloat = 120
-        positionX = -duckW
+        // Phase 1 : pause couché 0.6s
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+            // Phase 2 : marche vers la droite
+            let duckW: CGFloat  = 150          // largeur estimée du canard ASCII
+            let endX            = screenWidth + duckW   // sort complètement hors écran
+            let totalDist       = endX - 0     // de 0 → endX
+            let cycleTime: Double = 0.18
+            let nCycles         = 3.0 / cycleTime       // 16.67 cycles en 3s
+            let step            = totalDist / CGFloat(nCycles)
 
-        let endX      = screenWidth + duckW
-        let totalDist = endX + duckW             // screenWidth + 240
-        let cycleTime: Double = 0.18
-        let nCycles   = 3.0 / cycleTime          // 16.67
-        let step      = totalDist / CGFloat(nCycles)
-
-        func tick() {
-            frame = marcheA
-            DispatchQueue.main.asyncAfter(deadline: .now() + cycleTime * 0.5) {
-                frame = marcheB
-                withAnimation(.linear(duration: cycleTime * 0.4)) {
-                    positionX += step
-                }
+            func tick() {
+                frame = marcheA
                 DispatchQueue.main.asyncAfter(deadline: .now() + cycleTime * 0.5) {
-                    if positionX < endX {
-                        tick()
-                    } else {
-                        walkDone = true
-                        if authReady { onWalkComplete() }
+                    frame = marcheB
+                    withAnimation(.linear(duration: cycleTime * 0.4)) {
+                        positionX += step
+                    }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + cycleTime * 0.5) {
+                        if positionX < endX {
+                            tick()
+                        } else {
+                            walkDone = true
+                            if authReady { onWalkComplete() }
+                        }
                     }
                 }
             }
+            tick()
         }
-        tick()
     }
 }
 
