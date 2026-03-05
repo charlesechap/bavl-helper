@@ -104,7 +104,10 @@ struct DuckHeaderView: View {
             .onChange(of: walking) { _, isWalking in
                 if isWalking {
                     stopBlink()
-                    startWalk(screenWidth: geo.size.width)
+                    // Utiliser la largeur du GeometryReader × 3 pour garantir
+                    // que le canard traverse bien tout l'écran même si geo est contraint
+                    let w = max(geo.size.width * 3, 1200)
+                    startWalk(screenWidth: w)
                 } else {
                     started   = false
                     walkDone  = false
