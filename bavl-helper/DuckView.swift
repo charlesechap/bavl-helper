@@ -2,11 +2,6 @@ import SwiftUI
 import Combine
 
 // MARK: - Couleurs canard (fidèles au script Python duck.py)
-// C_GRN  = vert brillant  → tête __
-// C_WHT  = blanc brillant → œil  o
-// C_YLW  = jaune brillant → bec > et pattes
-// C_GRA  = gris           → corps <_ )
-
 private let dkGreen   = Color(red: 0.20, green: 0.90, blue: 0.20)
 private let dkWhite   = Color(red: 1.00, green: 1.00, blue: 1.00)
 private let dkYellow  = Color(red: 1.00, green: 0.90, blue: 0.10)
@@ -15,8 +10,7 @@ private let dkGray    = Color(red: 0.50, green: 0.50, blue: 0.50)
 // MARK: - Segment coloré
 
 private struct S {
-    let t: String
-    let c: Color
+    let t: String; let c: Color
     init(_ t: String, _ c: Color = Color(white: 0.82)) { self.t = t; self.c = c }
 }
 
@@ -26,7 +20,7 @@ private func duckText(_ segs: [S]) -> Text {
 
 // MARK: - Frames
 
-// frame_couch — canard couché, 1ère frame Python
+// frame_couch — couché, position de départ (x = 0)
 private let couch: [[S]] = [
     [S("               ")],
     [S("   "), S("__", dkGreen), S("        ")],
@@ -34,15 +28,13 @@ private let couch: [[S]] = [
     [S("               ")],
 ]
 
-// marche_A — patte avant "_ ."
+// marche_A / marche_B — alternance pattes
 private let marcheA: [[S]] = [
     [S("      "), S("__", dkGreen), S("       ")],
     [S("   __("), S("o", dkWhite), S(")"), S(">", dkYellow), S("     ")],
     [S("   \\ "), S("<_ )", dkGray), S("      ")],
     [S("    "), S("_ .", dkYellow), S("       ")],
 ]
-
-// marche_B — patte arrière ". _"
 private let marcheB: [[S]] = [
     [S("      "), S("__", dkGreen), S("       ")],
     [S("   __("), S("o", dkWhite), S(")"), S(">", dkYellow), S("     ")],
@@ -50,94 +42,64 @@ private let marcheB: [[S]] = [
     [S("    "), S(". _", dkYellow), S("       ")],
 ]
 
-// MARK: - DuckStaticView — canard couché, header permanent
-
-struct DuckStaticView: View {
-    var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            ForEach(Array(couch.enumerated()), id: \.offset) { _, segs in
-                duckText(segs)
-                    .font(.system(.body, design: .monospaced))
-                    .lineLimit(1)
-                    .fixedSize()
-            }
-        }
-    }
-}
-
-// MARK: - DuckLoadingView
+// MARK: - DuckHeaderView
 //
-// Rendu une seule fois par ContentView via le flag `animating`.
-// Le guard `started` protège contre les appels multiples à startWalk.
+// Canard UNIQUE affiché en haut de ContentView et Settings.
+// Quand `walking` est true : le canard traverse l'écran de gauche à droite (3s)
+// puis revient au repos à gauche. `onWalkComplete` est appelé quand la traversée
+// se termine ET que `authReady` est true.
 
-struct DuckLoadingView: View {
-    let onComplete:     () -> Void
-    let authReady:      Bool
-    let log:            [String]
-    let currentMessage: String
+struct DuckHeaderView: View {
+    let walking:       Bool          // piloté par ContentView
+    let authReady:     Bool          // piloté par vm.authReady
+    let onWalkComplete: () -> Void
 
-    @State private var frame:     [[S]]   = marcheA
-    @State private var positionX: CGFloat = -120
-    @State private var duckDone           = false
-    @State private var started            = false   // ← un seul démarrage garanti
+    @State private var frame:     [[S]]   = couch
+    @State private var positionX: CGFloat = 0
+    @State private var walkDone           = false
+    @State private var started            = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-
-            // Zone canard animée
-            GeometryReader { geo in
-                ZStack(alignment: .topLeading) {
-                    VStack(alignment: .leading, spacing: 0) {
-                        ForEach(Array(frame.enumerated()), id: \.offset) { _, segs in
-                            duckText(segs)
-                                .font(.system(.body, design: .monospaced))
-                                .lineLimit(1)
-                                .fixedSize()
-                        }
+        GeometryReader { geo in
+            ZStack(alignment: .topLeading) {
+                VStack(alignment: .leading, spacing: 0) {
+                    ForEach(Array(frame.enumerated()), id: \.offset) { _, segs in
+                        duckText(segs)
+                            .font(.system(.body, design: .monospaced))
+                            .lineLimit(1)
+                            .fixedSize()
                     }
-                    .offset(x: positionX)
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                .clipped()
-                .onAppear {
-                    guard !started else { return }
-                    started   = true
-                    positionX = -120
+                .offset(x: positionX)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .clipped()
+            .onChange(of: walking) { _, isWalking in
+                if isWalking {
                     startWalk(screenWidth: geo.size.width)
+                } else {
+                    // Reset pour la prochaine fois
+                    started   = false
+                    walkDone  = false
+                    positionX = 0
+                    frame     = couch
                 }
             }
-            .frame(height: 72)
-            .padding(.bottom, 10)
-
-            Divider().overlay(Color.termFaint).padding(.bottom, 10)
-
-            // Log terminal
-            VStack(alignment: .leading, spacing: 5) {
-                ForEach(log.dropLast(), id: \.self) { line in
-                    Text("  ✓ \(line)")
-                        .font(.system(.caption, design: .monospaced))
-                        .foregroundStyle(Color.termDim)
-                }
-                if !currentMessage.isEmpty {
-                    HStack(spacing: 6) {
-                        SpinnerView()
-                        Text(currentMessage)
-                            .font(.system(.caption, design: .monospaced))
-                            .foregroundStyle(Color.termFg)
-                    }
-                }
+            .onChange(of: authReady) { _, ready in
+                if ready && walkDone { onWalkComplete() }
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .padding()
-        .onChange(of: authReady) { _, ready in
-            if ready && duckDone { onComplete() }
-        }
+        .frame(height: 56)
     }
 
-    // MARK: - Walk 3 secondes, rythme 0.18 s (fidèle Python)
+    // MARK: - Walk 3 secondes, rythme 0.18s
     private func startWalk(screenWidth: CGFloat) {
-        let totalDist = screenWidth + 140.0
+        guard !started else { return }
+        started   = true
+        walkDone  = false
+        positionX = -screenWidth   // démarre hors écran à gauche
+
+        let totalDist = screenWidth + screenWidth + 40   // traverse tout l'écran
         let cycleTime = 0.18
         let step      = totalDist / (3.0 / cycleTime)
 
@@ -149,15 +111,48 @@ struct DuckLoadingView: View {
                     frame = marcheB
                 }
                 DispatchQueue.main.asyncAfter(deadline: .now() + cycleTime * 0.45) {
-                    if positionX < screenWidth + 20 { tick() }
-                    else {
-                        duckDone = true
-                        if authReady { onComplete() }
+                    if positionX < screenWidth + 20 {
+                        tick()
+                    } else {
+                        // Revenir au repos à gauche sans animation
+                        positionX = 0
+                        frame     = couch
+                        walkDone  = true
+                        if authReady { onWalkComplete() }
                     }
                 }
             }
         }
         tick()
+    }
+}
+
+// MARK: - WalkLogView
+// Juste le log terminal (plus de canard ici — il est dans le header)
+
+struct WalkLogView: View {
+    let log:            [String]
+    let currentMessage: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            ForEach(log.dropLast(), id: \.self) { line in
+                Text("  ✓ \(line)")
+                    .font(.system(.caption, design: .monospaced))
+                    .foregroundStyle(Color.termDim)
+            }
+            if !currentMessage.isEmpty {
+                HStack(spacing: 6) {
+                    SpinnerView()
+                    Text(currentMessage)
+                        .font(.system(.caption, design: .monospaced))
+                        .foregroundStyle(Color.termFg)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal)
+        .padding(.top, 12)
     }
 }
 
@@ -175,16 +170,29 @@ private struct SpinnerView: View {
     }
 }
 
+// Alias rétrocompatibilité — utilisé dans OnboardingView
+typealias DuckStaticView = _DuckStaticView
+struct _DuckStaticView: View {
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ForEach(Array(couch.enumerated()), id: \.offset) { _, segs in
+                duckText(segs)
+                    .font(.system(.body, design: .monospaced))
+                    .lineLimit(1).fixedSize()
+            }
+        }
+    }
+}
+
 #Preview {
     ZStack {
         Color.termBg.ignoresSafeArea()
-        VStack(spacing: 32) {
-            DuckStaticView()
+        VStack(spacing: 0) {
+            DuckHeaderView(walking: true, authReady: false, onWalkComplete: {})
+                .padding(.horizontal, 20).padding(.vertical, 12)
             Divider().overlay(Color.termFaint)
-            DuckLoadingView(onComplete: {}, authReady: false,
-                log: ["Connexion BAVL...", "Formulaire..."],
-                currentMessage: "Envoi identifiants...")
+            WalkLogView(log: ["Connexion BAVL...", "Formulaire..."],
+                        currentMessage: "Envoi identifiants...")
         }
-        .padding()
     }
 }
