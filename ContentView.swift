@@ -45,7 +45,8 @@ struct ASCIISpinnerView: View {
 // MARK: - ContentView
 
 struct ContentView: View {
-    @StateObject private var vm = AppViewModel()
+    // vm injecté depuis BAVLHelperApp (partagé avec OnboardingView)
+    @ObservedObject var vm: AppViewModel
     @State private var showSettings = false
     @State private var selectedNewspaper: Newspaper? = nil
     @Environment(\.horizontalSizeClass) private var hSizeClass
@@ -113,11 +114,8 @@ struct ContentView: View {
                 PressReaderSheet(newspaper: paper)
             }
             .onAppear {
-                if vm.cardNumber.isEmpty || vm.password.isEmpty {
-                    showSettings = true
-                } else {
-                    vm.checkExistingSession()
-                }
+                // Les credentials sont forcément remplis (onboarding terminé)
+                vm.checkExistingSession()
             }
         }
         .preferredColorScheme(.dark)
@@ -186,7 +184,6 @@ struct ContentView: View {
             sessionHeader.padding(.horizontal)
             Divider().overlay(Color.fgFaint).padding(.horizontal)
 
-            // Deux colonnes côte à côte
             let pairs = stride(from: 0, to: vm.newspapers.count, by: 2).map { i in
                 (i, i + 1 < vm.newspapers.count ? i + 1 : nil as Int?)
             }
@@ -194,28 +191,21 @@ struct ContentView: View {
             LazyVStack(alignment: .leading, spacing: 0) {
                 ForEach(pairs, id: \.0) { left, right in
                     HStack(alignment: .top, spacing: 0) {
-                        // Colonne gauche
                         if let paper = vm.newspapers[safe: left] {
                             newspaperRow(paper: paper, index: left)
                                 .frame(maxWidth: .infinity)
                         }
-
-                        // Séparateur vertical
                         Rectangle()
                             .fill(Color.fgFaint)
                             .frame(width: 1)
                             .padding(.vertical, 4)
-
-                        // Colonne droite
                         if let idx = right, let paper = vm.newspapers[safe: idx] {
                             newspaperRow(paper: paper, index: idx)
                                 .frame(maxWidth: .infinity)
                         } else {
-                            // Cellule vide pour équilibrer
                             Color.clear.frame(maxWidth: .infinity)
                         }
                     }
-
                     if pairs.last?.0 != left {
                         separatorLine.padding(.horizontal)
                     }
@@ -310,7 +300,5 @@ private extension Array {
 }
 
 #Preview("iPad — deux colonnes") {
-    ContentView()
+    ContentView(vm: AppViewModel())
 }
-
-
