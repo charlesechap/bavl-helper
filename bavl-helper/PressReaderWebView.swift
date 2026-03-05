@@ -424,6 +424,7 @@ struct PressReaderWebView: UIViewRepresentable {
 
 struct PressReaderSheet: View {
     let newspaper: Newspaper
+    @ObservedObject var vm: AppViewModel
     @Environment(\.dismiss) private var dismiss
 
     @State private var currentURL: URL? = nil
@@ -463,6 +464,7 @@ struct PressReaderSheet: View {
                     _PressReaderWebViewBridge(
                         initialURL: url,
                         pressReaderPath: newspaper.pressReaderPath,
+                        preloadedWebView: vm.consumePreloaded(for: newspaper.pressReaderPath),
                         onCoordinatorReady: { coordinator = $0 },
                         onURLChange: { currentURL = $0 }
                     )
@@ -605,23 +607,34 @@ private struct BarBtn: View {
 private struct _PressReaderWebViewBridge: UIViewRepresentable {
     let initialURL: URL
     let pressReaderPath: String
+    var preloadedWebView: WKWebView? = nil
     var onCoordinatorReady: (PressReaderWebView.Coordinator) -> Void
     var onURLChange: ((URL?) -> Void)?
 
     func makeUIView(context: Context) -> WKWebView {
-        let config = WKWebViewConfiguration()
-        config.websiteDataStore = .default()
-        config.userContentController.add(context.coordinator, name: "bearerToken")
-        config.userContentController.add(context.coordinator, name: "pageBlank")
-        config.userContentController.add(context.coordinator, name: "pageTitle")
-        let wv = WKWebView(frame: .zero, configuration: config)
+        // Utiliser le WKWebView préchargé si disponible (évite la spinning wheel)
+        let wv: WKWebView
+        if let preloaded = preloadedWebView {
+            wv = preloaded
+            wv.frame = .zero
+        } else {
+            let config = WKWebViewConfiguration()
+            config.websiteDataStore = .default()
+            let fresh = WKWebView(frame: .zero, configuration: config)
+            fresh.load(URLRequest(url: initialURL))
+            wv = fresh
+        }
+        // Toujours reconfigurer le coordinator (les handlers sont réenregistrés)
         wv.navigationDelegate = context.coordinator
         wv.allowsBackForwardNavigationGestures = true
         context.coordinator.webView = wv
         context.coordinator.pressReaderPath = pressReaderPath
         context.coordinator.onURLChange = onURLChange
-        wv.load(URLRequest(url: initialURL))
-        // Observer les changements d'URL (navigation SPA sans didFinish)
+        // Réinjecter les message handlers si absents (préchargé = config différente)
+        let names = ["bearerToken", "pageBlank", "pageTitle"]
+        for name in names {
+            wv.configuration.userContentController.add(context.coordinator, name: name)
+        }
         context.coordinator.startObservingURL(wv)
         DispatchQueue.main.async { self.onCoordinatorReady(context.coordinator) }
         return wv
