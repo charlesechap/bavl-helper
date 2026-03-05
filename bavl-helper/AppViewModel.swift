@@ -52,37 +52,20 @@ class AppViewModel: NSObject, ObservableObject {
             return
         }
 
-        // Vérification rapide via timestamp d'abord
+        // Si le timestamp est valide → session directe sans animation
         if let lastLogin = UserDefaults.standard.object(forKey: sessionDateKey) as? Date {
             let elapsed = Date().timeIntervalSince(lastLogin)
             if elapsed < sessionDuration {
-                // Le timestamp suggère que la session est valide,
-                // mais on vérifie quand même en chargeant PressReader
-                appendLog("Vérification session...")
-                verifySessionLive()
+                loginState = .success
+                authReady  = true
+                fetchLastEditionDates()
+                preloadPressReaderPages()
                 return
             }
         }
 
-        // Pas de timestamp ou session expirée → login direct
+        // Session expirée ou absente → login complet avec animation
         login()
-    }
-
-    /// Charge PressReader silencieusement pour vérifier si la session est toujours active
-    private func verifySessionLive() {
-        teardownWebView()
-        loginState = .loading
-
-        let config = WKWebViewConfiguration()
-        config.websiteDataStore = .default()
-        let wv = makeWebView(config: config)
-        self.webView = wv
-
-        // Flag pour distinguer le mode vérification du mode login
-        isVerifyingSession = true
-
-        let url = URL(string: "https://www.pressreader.com/")!
-        wv.load(URLRequest(url: url))
     }
 
     private var isVerifyingSession = false
@@ -342,25 +325,6 @@ extension AppViewModel: WKNavigationDelegate {
         Task { @MainActor in
             guard let url = webView.url?.absoluteString else { return }
             print("Page chargée: \(url)")
-
-            // MODE VÉRIFICATION SESSION
-            if isVerifyingSession {
-                if url.contains("pressreader.com") && !url.contains("login") {
-                    // On est bien sur PressReader → session encore valide
-                    appendLog("Session active — accès direct.")
-                    loginState = .success
-                    authReady = true
-                    teardownWebView()
-                    preloadPressReaderPages()
-                } else {
-                    // Redirigé ailleurs → session expirée, on relance le login
-                    appendLog("Session expirée — reconnexion...")
-                    isVerifyingSession = false
-                    teardownWebView()
-                    login()
-                }
-                return
-            }
 
             // MODE LOGIN NORMAL
             if url.contains("offre-numerique-pressreader-acces") {
