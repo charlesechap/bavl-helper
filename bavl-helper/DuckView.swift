@@ -1,13 +1,10 @@
 import SwiftUI
 import Combine
 
-// MARK: - Couleurs canard (fidèles au script Python duck.py)
 private let dkGreen   = Color(red: 0.20, green: 0.90, blue: 0.20)
 private let dkWhite   = Color(red: 1.00, green: 1.00, blue: 1.00)
 private let dkYellow  = Color(red: 1.00, green: 0.90, blue: 0.10)
 private let dkGray    = Color(red: 0.50, green: 0.50, blue: 0.50)
-
-// MARK: - Segment coloré
 
 private struct S {
     let t: String; let c: Color
@@ -18,9 +15,6 @@ private func duckText(_ segs: [S]) -> Text {
     segs.reduce(Text("")) { acc, s in acc + Text(s.t).foregroundColor(s.c) }
 }
 
-// MARK: - Frames
-
-// frame_couch — couché, position de départ (x = 0)
 private let couch: [[S]] = [
     [S("               ")],
     [S("   "), S("__", dkGreen), S("        ")],
@@ -28,7 +22,6 @@ private let couch: [[S]] = [
     [S("               ")],
 ]
 
-// marche_A / marche_B — alternance pattes
 private let marcheA: [[S]] = [
     [S("      "), S("__", dkGreen), S("       ")],
     [S("   __("), S("o", dkWhite), S(")"), S(">", dkYellow), S("     ")],
@@ -43,15 +36,10 @@ private let marcheB: [[S]] = [
 ]
 
 // MARK: - DuckHeaderView
-//
-// Canard UNIQUE affiché en haut de ContentView et Settings.
-// Quand `walking` est true : le canard traverse l'écran de gauche à droite (3s)
-// puis revient au repos à gauche. `onWalkComplete` est appelé quand la traversée
-// se termine ET que `authReady` est true.
 
 struct DuckHeaderView: View {
-    let walking:       Bool          // piloté par ContentView
-    let authReady:     Bool          // piloté par vm.authReady
+    let walking:        Bool
+    let authReady:      Bool
     let onWalkComplete: () -> Void
 
     @State private var frame:     [[S]]   = couch
@@ -60,61 +48,66 @@ struct DuckHeaderView: View {
     @State private var started            = false
 
     var body: some View {
-        GeometryReader { geo in
-            ZStack(alignment: .topLeading) {
-                VStack(alignment: .leading, spacing: 0) {
-                    ForEach(Array(frame.enumerated()), id: \.offset) { _, segs in
-                        duckText(segs)
-                            .font(.system(.body, design: .monospaced))
-                            .lineLimit(1)
-                            .fixedSize()
-                    }
-                }
-                .offset(x: positionX)
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            .clipped()
-            .onChange(of: walking) { _, isWalking in
-                if isWalking {
-                    startWalk(screenWidth: geo.size.width)
-                } else {
-                    // Reset pour la prochaine fois
-                    started   = false
-                    walkDone  = false
-                    positionX = 0
-                    frame     = couch
+        // Utiliser UIScreen pour avoir la vraie largeur, indépendamment du GeometryReader parent
+        let screenW = UIScreen.main.bounds.width
+
+        ZStack(alignment: .topLeading) {
+            VStack(alignment: .leading, spacing: 0) {
+                ForEach(Array(frame.enumerated()), id: \.offset) { _, segs in
+                    duckText(segs)
+                        .font(.system(.body, design: .monospaced))
+                        .lineLimit(1)
+                        .fixedSize()
                 }
             }
-            .onChange(of: authReady) { _, ready in
-                if ready && walkDone { onWalkComplete() }
+            .offset(x: positionX)
+        }
+        .frame(width: screenW, height: 56, alignment: .topLeading)
+        .clipped()
+        .onChange(of: walking) { _, isWalking in
+            if isWalking {
+                startWalk(screenWidth: screenW)
+            } else {
+                started   = false
+                walkDone  = false
+                positionX = 0
+                frame     = couch
             }
         }
-        .frame(height: 56)
+        .onChange(of: authReady) { _, ready in
+            if ready && walkDone { onWalkComplete() }
+        }
     }
 
-    // MARK: - Walk 3 secondes, rythme 0.18s
+    // Walk : entre hors écran à gauche (-canardWidth ≈ -120)
+    // et sort complètement à droite (screenW + 120)
+    // Durée totale 3s, rythme 0.18s/cycle
     private func startWalk(screenWidth: CGFloat) {
         guard !started else { return }
         started   = true
         walkDone  = false
-        positionX = -screenWidth   // démarre hors écran à gauche
 
-        let totalDist = screenWidth + screenWidth + 40   // traverse tout l'écran
+        let duckWidth: CGFloat = 120
+        let startX    = -duckWidth
+        let endX      = screenWidth + duckWidth
+        positionX     = startX
+
+        let totalDist = endX - startX          // screenWidth + 240
         let cycleTime = 0.18
-        let step      = totalDist / (3.0 / cycleTime)
+        let nCycles   = 3.0 / cycleTime        // 16.67
+        let step      = totalDist / CGFloat(nCycles)
 
         func tick() {
             frame = marcheA
-            DispatchQueue.main.asyncAfter(deadline: .now() + cycleTime * 0.55) {
-                withAnimation(.linear(duration: cycleTime * 0.25)) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + cycleTime * 0.5) {
+                frame = marcheB
+                withAnimation(.linear(duration: cycleTime * 0.5)) {
                     positionX += step
-                    frame = marcheB
                 }
-                DispatchQueue.main.asyncAfter(deadline: .now() + cycleTime * 0.45) {
-                    if positionX < screenWidth + 20 {
+                DispatchQueue.main.asyncAfter(deadline: .now() + cycleTime * 0.5) {
+                    if positionX < endX {
                         tick()
                     } else {
-                        // Revenir au repos à gauche sans animation
                         positionX = 0
                         frame     = couch
                         walkDone  = true
@@ -128,7 +121,6 @@ struct DuckHeaderView: View {
 }
 
 // MARK: - WalkLogView
-// Juste le log terminal (plus de canard ici — il est dans le header)
 
 struct WalkLogView: View {
     let log:            [String]
@@ -170,7 +162,6 @@ private struct SpinnerView: View {
     }
 }
 
-// Alias rétrocompatibilité — utilisé dans OnboardingView
 typealias DuckStaticView = _DuckStaticView
 struct _DuckStaticView: View {
     var body: some View {
@@ -189,10 +180,8 @@ struct _DuckStaticView: View {
         Color.termBg.ignoresSafeArea()
         VStack(spacing: 0) {
             DuckHeaderView(walking: true, authReady: false, onWalkComplete: {})
-                .padding(.horizontal, 20).padding(.vertical, 12)
             Divider().overlay(Color.termFaint)
-            WalkLogView(log: ["Connexion BAVL...", "Formulaire..."],
-                        currentMessage: "Envoi identifiants...")
+            WalkLogView(log: ["Connexion BAVL..."], currentMessage: "Envoi identifiants...")
         }
     }
 }
