@@ -4,32 +4,29 @@ import Combine
 // MARK: - Couleurs canard (fidèles au script Python duck.py)
 // C_GRN  = vert brillant  → tête __
 // C_WHT  = blanc brillant → œil  o
-// C_YLW  = jaune brillant → bec  >  et pattes  _ . / . _
+// C_YLW  = jaune brillant → bec > et pattes
 // C_GRA  = gris           → corps <_ )
 
-private let dkGreen  = Color(red: 0.20, green: 0.90, blue: 0.20)
-private let dkWhite  = Color(red: 1.00, green: 1.00, blue: 1.00)
-private let dkYellow = Color(red: 1.00, green: 0.90, blue: 0.10)
-private let dkGray   = Color(red: 0.50, green: 0.50, blue: 0.50)
-private let dkNeutral = Color(white: 0.82)
+private let dkGreen   = Color(red: 0.20, green: 0.90, blue: 0.20)
+private let dkWhite   = Color(red: 1.00, green: 1.00, blue: 1.00)
+private let dkYellow  = Color(red: 1.00, green: 0.90, blue: 0.10)
+private let dkGray    = Color(red: 0.50, green: 0.50, blue: 0.50)
 
 // MARK: - Segment coloré
 
-private struct S { // segment
-    let t: String   // texte
-    let c: Color    // couleur
+private struct S {
+    let t: String
+    let c: Color
     init(_ t: String, _ c: Color = Color(white: 0.82)) { self.t = t; self.c = c }
 }
 
 private func duckText(_ segs: [S]) -> Text {
-    segs.reduce(Text("")) { acc, s in
-        acc + Text(s.t).foregroundColor(s.c)
-    }
+    segs.reduce(Text("")) { acc, s in acc + Text(s.t).foregroundColor(s.c) }
 }
 
-// MARK: - Frames (4 lignes chacune)
+// MARK: - Frames
 
-// frame_couch — canard couché, 1ère frame du script
+// frame_couch — canard couché, 1ère frame Python
 private let couch: [[S]] = [
     [S("               ")],
     [S("   "), S("__", dkGreen), S("        ")],
@@ -53,7 +50,7 @@ private let marcheB: [[S]] = [
     [S("    "), S(". _", dkYellow), S("       ")],
 ]
 
-// MARK: - DuckStaticView — canard couché (onboarding, settings, idle)
+// MARK: - DuckStaticView — canard couché, header permanent
 
 struct DuckStaticView: View {
     var body: some View {
@@ -69,6 +66,9 @@ struct DuckStaticView: View {
 }
 
 // MARK: - DuckLoadingView
+//
+// Rendu une seule fois par ContentView via le flag `animating`.
+// Le guard `started` protège contre les appels multiples à startWalk.
 
 struct DuckLoadingView: View {
     let onComplete:     () -> Void
@@ -76,15 +76,15 @@ struct DuckLoadingView: View {
     let log:            [String]
     let currentMessage: String
 
-    @State private var frame:     [[S]]  = marcheA
+    @State private var frame:     [[S]]   = marcheA
     @State private var positionX: CGFloat = -120
-    @State private var duckDone  = false
-    @State private var started   = false   // anti-double onAppear
+    @State private var duckDone           = false
+    @State private var started            = false   // ← un seul démarrage garanti
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
 
-            // Zone canard
+            // Zone canard animée
             GeometryReader { geo in
                 ZStack(alignment: .topLeading) {
                     VStack(alignment: .leading, spacing: 0) {
@@ -135,13 +135,11 @@ struct DuckLoadingView: View {
         }
     }
 
-    // MARK: - Walk 3 secondes, rythme 0.18s (fidèle Python)
-
+    // MARK: - Walk 3 secondes, rythme 0.18 s (fidèle Python)
     private func startWalk(screenWidth: CGFloat) {
-        let totalDist = screenWidth + 140.0   // -120 → screenWidth+20
-        let cycleTime = 0.18                  // rythme Python exact
-        let nCycles   = 3.0 / cycleTime       // 16.7 cycles
-        let step      = totalDist / nCycles   // pts/cycle
+        let totalDist = screenWidth + 140.0
+        let cycleTime = 0.18
+        let step      = totalDist / (3.0 / cycleTime)
 
         func tick() {
             frame = marcheA
@@ -151,9 +149,8 @@ struct DuckLoadingView: View {
                     frame = marcheB
                 }
                 DispatchQueue.main.asyncAfter(deadline: .now() + cycleTime * 0.45) {
-                    if positionX < screenWidth + 20 {
-                        tick()
-                    } else {
+                    if positionX < screenWidth + 20 { tick() }
+                    else {
                         duckDone = true
                         if authReady { onComplete() }
                     }
