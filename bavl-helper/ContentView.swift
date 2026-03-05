@@ -93,9 +93,16 @@ struct ContentView: View {
                     walking        = true
                     showNewspapers = false
                 }
-                // Pour .failure : arrêter la marche si elle tourne encore
                 if case .failure = state {
                     walking = false
+                }
+            }
+            // Session directe (sans animation) : authReady=true sans walking
+            .onChange(of: vm.authReady) { _, ready in
+                if ready && !walking {
+                    if case .success = vm.loginState {
+                        showNewspapers = true
+                    }
                 }
             }
         }
