@@ -25,8 +25,8 @@ struct ContentView: View {
                         newspaperListView
                     } else {
                         // ── Écran login / chargement / idle ──────────────────
-                        // Canard + contenu sous lui
-                        HStack(alignment: .bottom) {
+                        // Canard pleine largeur + stateLabel en overlay
+                        ZStack(alignment: .bottomTrailing) {
                             DuckHeaderView(
                                 walking:        walking,
                                 authReady:      vm.authReady,
@@ -37,9 +37,7 @@ struct ContentView: View {
                                     }
                                 }
                             )
-                            .padding(.leading, 20)
                             .padding(.vertical, 12)
-                            Spacer()
                             Text(stateLabel)
                                 .font(.system(.caption2, design: .monospaced))
                                 .foregroundStyle(Color.termFaint)
