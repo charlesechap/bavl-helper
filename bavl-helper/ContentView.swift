@@ -1,8 +1,6 @@
 import SwiftUI
 import Combine
 
-// MARK: - ContentView
-
 struct ContentView: View {
     @ObservedObject var vm: AppViewModel
     @State private var showSettings   = false
@@ -15,7 +13,6 @@ struct ContentView: View {
         NavigationStack {
             ZStack {
                 Color.termBg.ignoresSafeArea()
-
                 VStack(alignment: .leading, spacing: 0) {
                     headerBar
                     Divider().overlay(Color.termFaint).padding(.horizontal)
@@ -26,8 +23,7 @@ struct ContentView: View {
                             DuckLoadingView(
                                 onComplete: { withAnimation(.easeInOut(duration: 0.35)) { showNewspapers = true } },
                                 authReady: vm.authReady,
-                                log: vm.statusLog,
-                                currentMessage: vm.statusMessage
+                                log: vm.statusLog, currentMessage: vm.statusMessage
                             )
                         }
 
@@ -35,13 +31,12 @@ struct ContentView: View {
                         if showNewspapers {
                             newspaperListView
                         } else {
-                            // Auth OK mais canard pas fini — on garde l'animation
+                            // Auth OK mais canard pas encore sorti
                             centeredContent {
                                 DuckLoadingView(
                                     onComplete: { withAnimation(.easeInOut(duration: 0.35)) { showNewspapers = true } },
                                     authReady: vm.authReady,
-                                    log: vm.statusLog,
-                                    currentMessage: vm.statusMessage
+                                    log: vm.statusLog, currentMessage: vm.statusMessage
                                 )
                             }
                         }
@@ -49,26 +44,23 @@ struct ContentView: View {
                     case .failure(let msg):
                         centeredContent {
                             VStack(alignment: .leading, spacing: 12) {
-                                TerminalFrame(title: "ERREUR") {
-                                    VStack(alignment: .leading, spacing: 10) {
-                                        Text("  \(msg)")
-                                            .font(.system(.caption, design: .monospaced))
-                                            .foregroundStyle(Color.termDim)
-                                            .padding(.vertical, 8)
-                                    }
-                                }
+                                // Canard couché sur l'écran d'erreur aussi
+                                DuckStaticView().padding(.horizontal).padding(.top, 24)
+                                Text("  # [ERR] \(msg)")
+                                    .font(.system(.caption, design: .monospaced))
+                                    .foregroundStyle(Color.termDim)
+                                    .padding(.horizontal)
                                 TerminalButton(label: "> RÉESSAYER_") { vm.login() }
+                                    .padding(.horizontal)
                             }
-                            .padding(.horizontal)
-                            .padding(.top, 24)
                         }
 
                     case .idle:
                         centeredContent {
-                            VStack(alignment: .leading, spacing: 0) {
+                            VStack(alignment: .leading, spacing: 16) {
+                                DuckStaticView().padding(.horizontal).padding(.top, 24)
                                 TerminalButton(label: "> CONNEXION_") { vm.login() }
                                     .padding(.horizontal)
-                                    .padding(.top, 24)
                             }
                         }
                     }
@@ -90,7 +82,9 @@ struct ContentView: View {
                 }
             }
             .sheet(isPresented: $showSettings) { SettingsView(vm: vm) }
-            .fullScreenCover(item: $selectedPaper) { PressReaderSheet(newspaper: $0) }
+            .fullScreenCover(item: $selectedPaper) { paper in
+                PressReaderSheet(newspaper: paper, vm: vm)
+            }
             .onAppear {
                 showNewspapers = false
                 vm.authReady   = false
@@ -100,47 +94,28 @@ struct ContentView: View {
         .preferredColorScheme(.dark)
     }
 
-    // MARK: - Header
-
     private var headerBar: some View {
         HStack {
             Text("CANARD // BAVL PRESSE")
                 .font(.system(.caption2, design: .monospaced))
                 .foregroundStyle(Color.termFaint)
             Spacer()
-            if isIPad {
-                Text("[ iPad ]")
-                    .font(.system(.caption2, design: .monospaced))
-                    .foregroundStyle(Color.termFaint)
-            }
+            if isIPad { Text("[ iPad ]").font(.system(.caption2, design: .monospaced)).foregroundStyle(Color.termFaint) }
         }
-        .padding(.horizontal)
-        .padding(.top, 6)
-        .padding(.bottom, 4)
+        .padding(.horizontal).padding(.top, 6).padding(.bottom, 4)
     }
-
-    // MARK: - Liste journaux
 
     private var newspaperListView: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
-                // Status ligne
                 HStack {
                     Text("# [OK] session active")
-                        .font(.system(.caption2, design: .monospaced))
-                        .foregroundStyle(Color.termFaint)
+                        .font(.system(.caption2, design: .monospaced)).foregroundStyle(Color.termFaint)
                     Spacer()
                 }
-                .padding(.horizontal)
-                .padding(.vertical, 6)
-
+                .padding(.horizontal).padding(.vertical, 6)
                 Divider().overlay(Color.termFaint).padding(.horizontal)
-
-                if isIPad {
-                    iPadGrid
-                } else {
-                    phoneList
-                }
+                isIPad ? AnyView(iPadGrid) : AnyView(phoneList)
             }
         }
     }
@@ -149,21 +124,19 @@ struct ContentView: View {
         LazyVStack(alignment: .leading, spacing: 0) {
             ForEach(Array(vm.newspapers.enumerated()), id: \.element.id) { i, paper in
                 newspaperRow(paper: paper, index: i)
-                if i < vm.newspapers.count - 1 {
-                    TerminalSeparator().padding(.horizontal)
-                }
+                if i < vm.newspapers.count - 1 { TerminalSeparator().padding(.horizontal) }
             }
         }
     }
 
     private var iPadGrid: some View {
-        let pairs = stride(from: 0, to: vm.newspapers.count, by: 2).map { i in
-            (i, i + 1 < vm.newspapers.count ? i + 1 : nil as Int?)
+        let pairs = stride(from: 0, to: vm.newspapers.count, by: 2).map {
+            ($0, $0 + 1 < vm.newspapers.count ? $0 + 1 : nil as Int?)
         }
         return LazyVStack(spacing: 0) {
             ForEach(pairs, id: \.0) { left, right in
                 HStack(alignment: .top, spacing: 0) {
-                    if let p = vm.newspapers[safe: left] { newspaperRow(paper: p, index: left).frame(maxWidth: .infinity) }
+                    if let p = vm.newspapers[safe: left]  { newspaperRow(paper: p, index: left).frame(maxWidth: .infinity) }
                     Rectangle().fill(Color.termFaint).frame(width: 1).padding(.vertical, 4)
                     if let r = right, let p = vm.newspapers[safe: r] { newspaperRow(paper: p, index: r).frame(maxWidth: .infinity) }
                     else { Color.clear.frame(maxWidth: .infinity) }
@@ -180,30 +153,21 @@ struct ContentView: View {
             Button { selectedPaper = paper } label: {
                 HStack(alignment: .top, spacing: 8) {
                     Text(String(format: "%02d.", index + 1))
-                        .font(.system(.body, design: .monospaced))
-                        .foregroundStyle(Color.termFaint)
+                        .font(.system(.body, design: .monospaced)).foregroundStyle(Color.termFaint)
                     VStack(alignment: .leading, spacing: 2) {
                         Text(paper.name.uppercased())
-                            .font(.system(.body, design: .monospaced))
-                            .foregroundStyle(Color.termFg)
+                            .font(.system(.body, design: .monospaced)).foregroundStyle(Color.termFg)
                         Text("[\(paper.viewMode.label.uppercased())] \(paper.pressReaderPath)")
-                            .font(.system(.caption2, design: .monospaced))
-                            .foregroundStyle(Color.termFaint)
+                            .font(.system(.caption2, design: .monospaced)).foregroundStyle(Color.termFaint)
                     }
                     Spacer()
-                    Text("→")
-                        .font(.system(.body, design: .monospaced))
-                        .foregroundStyle(Color.termDim)
+                    Text("→").font(.system(.body, design: .monospaced)).foregroundStyle(Color.termDim)
                 }
-                .padding(.vertical, 10)
-                .padding(.horizontal)
-                .contentShape(Rectangle())
+                .padding(.vertical, 10).padding(.horizontal).contentShape(Rectangle())
             }
             .buttonStyle(.plain)
         }
     }
-
-    // MARK: - Helpers
 
     @ViewBuilder
     private func centeredContent<C: View>(@ViewBuilder content: () -> C) -> some View {
@@ -220,5 +184,4 @@ private extension Array {
     subscript(safe i: Int) -> Element? { indices.contains(i) ? self[i] : nil }
 }
 
-#Preview("iPhone") { ContentView(vm: AppViewModel()) }
-#Preview("iPad") { ContentView(vm: AppViewModel()) }
+#Preview { ContentView(vm: AppViewModel()) }
