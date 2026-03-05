@@ -1,246 +1,199 @@
 import SwiftUI
 import Combine
 
-// MARK: - Palette
-private extension Color {
-    static let bg      = Color(red: 0.13, green: 0.13, blue: 0.13)
-    static let fg      = Color(red: 0.80, green: 0.80, blue: 0.80)
-    static let fgDim   = Color(red: 0.50, green: 0.50, blue: 0.50)
-    static let fgFaint = Color(red: 0.30, green: 0.30, blue: 0.30)
-}
-
 // MARK: - ContentView
 
 struct ContentView: View {
     @ObservedObject var vm: AppViewModel
-    @State private var showSettings = false
-    @State private var selectedNewspaper: Newspaper? = nil
-    @State private var showNewspapers: Bool = false
+    @State private var showSettings   = false
+    @State private var selectedPaper: Newspaper? = nil
+    @State private var showNewspapers = false
     @Environment(\.horizontalSizeClass) private var hSizeClass
-
     private var isIPad: Bool { hSizeClass == .regular }
 
     var body: some View {
         NavigationStack {
             ZStack {
-                Color.bg.ignoresSafeArea()
+                Color.termBg.ignoresSafeArea()
 
                 VStack(alignment: .leading, spacing: 0) {
-                    // Header
-                    HStack {
-                        Text("BAVL // PRESSE")
-                            .font(.system(.caption2, design: .monospaced))
-                            .foregroundStyle(Color.fgFaint)
-                        Spacer()
-                        if isIPad {
-                            Text("[ iPad ]")
-                                .font(.system(.caption2, design: .monospaced))
-                                .foregroundStyle(Color.fgFaint)
-                        }
-                    }
-                    .padding(.horizontal)
-                    .padding(.top, 6)
-                    .padding(.bottom, 4)
+                    headerBar
+                    Divider().overlay(Color.termFaint).padding(.horizontal)
 
-                    Divider().overlay(Color.fgFaint).padding(.horizontal)
-
-                    // Contenu principal
-                    if case .loading = vm.loginState {
+                    switch vm.loginState {
+                    case .loading:
                         centeredContent {
                             DuckLoadingView(
-                                onComplete: {
-                                    withAnimation(.easeInOut(duration: 0.4)) {
-                                        showNewspapers = true
-                                    }
-                                },
+                                onComplete: { withAnimation(.easeInOut(duration: 0.35)) { showNewspapers = true } },
                                 authReady: vm.authReady,
                                 log: vm.statusLog,
                                 currentMessage: vm.statusMessage
                             )
                         }
-                    } else if case .success = vm.loginState {
+
+                    case .success:
                         if showNewspapers {
-                            if isIPad {
-                                iPadNewspaperView
-                            } else {
-                                newspaperListView
-                            }
+                            newspaperListView
                         } else {
-                            // Auth réussie mais canard pas encore fini — on attend
+                            // Auth OK mais canard pas fini — on garde l'animation
                             centeredContent {
                                 DuckLoadingView(
-                                    onComplete: {
-                                        withAnimation(.easeInOut(duration: 0.4)) {
-                                            showNewspapers = true
-                                        }
-                                    },
+                                    onComplete: { withAnimation(.easeInOut(duration: 0.35)) { showNewspapers = true } },
                                     authReady: vm.authReady,
                                     log: vm.statusLog,
                                     currentMessage: vm.statusMessage
                                 )
                             }
                         }
-                    } else {
+
+                    case .failure(let msg):
                         centeredContent {
-                            statusView.padding(.horizontal)
+                            VStack(alignment: .leading, spacing: 12) {
+                                TerminalFrame(title: "ERREUR") {
+                                    VStack(alignment: .leading, spacing: 10) {
+                                        Text("  \(msg)")
+                                            .font(.system(.caption, design: .monospaced))
+                                            .foregroundStyle(Color.termDim)
+                                            .padding(.vertical, 8)
+                                    }
+                                }
+                                TerminalButton(label: "> RÉESSAYER_") { vm.login() }
+                            }
+                            .padding(.horizontal)
+                            .padding(.top, 24)
+                        }
+
+                    case .idle:
+                        centeredContent {
+                            VStack(alignment: .leading, spacing: 0) {
+                                TerminalButton(label: "> CONNEXION_") { vm.login() }
+                                    .padding(.horizontal)
+                                    .padding(.top, 24)
+                            }
                         }
                     }
+
+                    Spacer(minLength: 0)
+                    TerminalSignature()
                 }
             }
             .navigationBarTitleDisplayMode(.inline)
-            .toolbarBackground(Color.bg, for: .navigationBar)
+            .toolbarBackground(Color.termBg, for: .navigationBar)
             .toolbarColorScheme(.dark, for: .navigationBar)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button { showSettings = true } label: {
                         Text("[CFG]")
                             .font(.system(.caption, design: .monospaced))
-                            .foregroundStyle(Color.fg)
+                            .foregroundStyle(Color.termFg)
                     }
                 }
             }
-            .sheet(isPresented: $showSettings) {
-                SettingsView(vm: vm)
-            }
-            .fullScreenCover(item: $selectedNewspaper) { paper in
-                PressReaderSheet(newspaper: paper)
-            }
+            .sheet(isPresented: $showSettings) { SettingsView(vm: vm) }
+            .fullScreenCover(item: $selectedPaper) { PressReaderSheet(newspaper: $0) }
             .onAppear {
                 showNewspapers = false
-                vm.authReady = false
+                vm.authReady   = false
                 vm.checkExistingSession()
             }
         }
         .preferredColorScheme(.dark)
     }
 
-    // MARK: - Centrage iPad
+    // MARK: - Header
 
-    @ViewBuilder
-    private func centeredContent<C: View>(@ViewBuilder content: () -> C) -> some View {
+    private var headerBar: some View {
         HStack {
-            Spacer(minLength: 0)
-            content()
-                .frame(maxWidth: isIPad ? 600 : .infinity)
-            Spacer(minLength: 0)
-        }
-        .frame(maxHeight: .infinity, alignment: .top)
-    }
-
-    // MARK: - Status (idle / erreur)
-
-    @ViewBuilder
-    private var statusView: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            switch vm.loginState {
-            case .idle:
-                Button(action: { vm.login() }) {
-                    Text("> CONNEXION_")
-                        .font(.system(.body, design: .monospaced))
-                        .foregroundStyle(Color.fg)
-                }
-            case .failure(let msg):
-                Text("# [ERR] \(msg)")
-                    .font(.system(.caption, design: .monospaced))
-                    .foregroundStyle(Color.fgDim)
-                Button(action: { vm.login() }) {
-                    Text("> RÉESSAYER_")
-                        .font(.system(.caption, design: .monospaced))
-                        .foregroundStyle(Color.fg)
-                }
-            default:
-                EmptyView()
+            Text("CANARD // BAVL PRESSE")
+                .font(.system(.caption2, design: .monospaced))
+                .foregroundStyle(Color.termFaint)
+            Spacer()
+            if isIPad {
+                Text("[ iPad ]")
+                    .font(.system(.caption2, design: .monospaced))
+                    .foregroundStyle(Color.termFaint)
             }
         }
+        .padding(.horizontal)
+        .padding(.top, 6)
+        .padding(.bottom, 4)
     }
 
-    // MARK: - Liste iPhone
+    // MARK: - Liste journaux
 
     private var newspaperListView: some View {
         ScrollView {
-            sessionHeader
-            Divider().overlay(Color.fgFaint).padding(.horizontal)
-            LazyVStack(alignment: .leading, spacing: 0) {
-                ForEach(Array(vm.newspapers.enumerated()), id: \.element.id) { i, paper in
-                    newspaperRow(paper: paper, index: i)
-                    if i < vm.newspapers.count - 1 {
-                        separatorLine.padding(.horizontal)
-                    }
+            VStack(alignment: .leading, spacing: 0) {
+                // Status ligne
+                HStack {
+                    Text("# [OK] session active")
+                        .font(.system(.caption2, design: .monospaced))
+                        .foregroundStyle(Color.termFaint)
+                    Spacer()
+                }
+                .padding(.horizontal)
+                .padding(.vertical, 6)
+
+                Divider().overlay(Color.termFaint).padding(.horizontal)
+
+                if isIPad {
+                    iPadGrid
+                } else {
+                    phoneList
                 }
             }
         }
     }
 
-    // MARK: - Liste iPad
-
-    private var iPadNewspaperView: some View {
-        ScrollView {
-            sessionHeader.padding(.horizontal)
-            Divider().overlay(Color.fgFaint).padding(.horizontal)
-            let pairs = stride(from: 0, to: vm.newspapers.count, by: 2).map { i in
-                (i, i + 1 < vm.newspapers.count ? i + 1 : nil as Int?)
-            }
-            LazyVStack(alignment: .leading, spacing: 0) {
-                ForEach(pairs, id: \.0) { left, right in
-                    HStack(alignment: .top, spacing: 0) {
-                        if let paper = vm.newspapers[safe: left] {
-                            newspaperRow(paper: paper, index: left).frame(maxWidth: .infinity)
-                        }
-                        Rectangle().fill(Color.fgFaint).frame(width: 1).padding(.vertical, 4)
-                        if let idx = right, let paper = vm.newspapers[safe: idx] {
-                            newspaperRow(paper: paper, index: idx).frame(maxWidth: .infinity)
-                        } else {
-                            Color.clear.frame(maxWidth: .infinity)
-                        }
-                    }
-                    if pairs.last?.0 != left { separatorLine.padding(.horizontal) }
+    private var phoneList: some View {
+        LazyVStack(alignment: .leading, spacing: 0) {
+            ForEach(Array(vm.newspapers.enumerated()), id: \.element.id) { i, paper in
+                newspaperRow(paper: paper, index: i)
+                if i < vm.newspapers.count - 1 {
+                    TerminalSeparator().padding(.horizontal)
                 }
             }
-            .padding(.horizontal)
         }
     }
 
-    // MARK: - Composants partagés
-
-    private var sessionHeader: some View {
-        HStack {
-            Text("# [OK] session active")
-                .font(.system(.caption2, design: .monospaced))
-                .foregroundStyle(Color.fgFaint)
-            Spacer()
+    private var iPadGrid: some View {
+        let pairs = stride(from: 0, to: vm.newspapers.count, by: 2).map { i in
+            (i, i + 1 < vm.newspapers.count ? i + 1 : nil as Int?)
+        }
+        return LazyVStack(spacing: 0) {
+            ForEach(pairs, id: \.0) { left, right in
+                HStack(alignment: .top, spacing: 0) {
+                    if let p = vm.newspapers[safe: left] { newspaperRow(paper: p, index: left).frame(maxWidth: .infinity) }
+                    Rectangle().fill(Color.termFaint).frame(width: 1).padding(.vertical, 4)
+                    if let r = right, let p = vm.newspapers[safe: r] { newspaperRow(paper: p, index: r).frame(maxWidth: .infinity) }
+                    else { Color.clear.frame(maxWidth: .infinity) }
+                }
+                if pairs.last?.0 != left { TerminalSeparator().padding(.horizontal) }
+            }
         }
         .padding(.horizontal)
-        .padding(.vertical, 6)
-    }
-
-    private var separatorLine: some View {
-        Text("· · · · · · · · · · · · · · · · · · · ·")
-            .font(.system(.caption2, design: .monospaced))
-            .foregroundStyle(Color.fgFaint)
     }
 
     @ViewBuilder
     private func newspaperRow(paper: Newspaper, index: Int) -> some View {
         if paper.resolvedURL != nil {
-            Button {
-                selectedNewspaper = paper
-            } label: {
+            Button { selectedPaper = paper } label: {
                 HStack(alignment: .top, spacing: 8) {
-                    Text("\(String(format: "%02d", index + 1)).")
+                    Text(String(format: "%02d.", index + 1))
                         .font(.system(.body, design: .monospaced))
-                        .foregroundStyle(Color.fgFaint)
+                        .foregroundStyle(Color.termFaint)
                     VStack(alignment: .leading, spacing: 2) {
                         Text(paper.name.uppercased())
                             .font(.system(.body, design: .monospaced))
-                            .foregroundStyle(Color.fg)
+                            .foregroundStyle(Color.termFg)
                         Text("[\(paper.viewMode.label.uppercased())] \(paper.pressReaderPath)")
                             .font(.system(.caption2, design: .monospaced))
-                            .foregroundStyle(Color.fgFaint)
+                            .foregroundStyle(Color.termFaint)
                     }
                     Spacer()
                     Text("→")
                         .font(.system(.body, design: .monospaced))
-                        .foregroundStyle(Color.fgDim)
+                        .foregroundStyle(Color.termDim)
                 }
                 .padding(.vertical, 10)
                 .padding(.horizontal)
@@ -249,39 +202,23 @@ struct ContentView: View {
             .buttonStyle(.plain)
         }
     }
-}
 
-// MARK: - Safe subscript
+    // MARK: - Helpers
+
+    @ViewBuilder
+    private func centeredContent<C: View>(@ViewBuilder content: () -> C) -> some View {
+        HStack {
+            Spacer(minLength: 0)
+            content().frame(maxWidth: isIPad ? 600 : .infinity)
+            Spacer(minLength: 0)
+        }
+        .frame(maxHeight: .infinity, alignment: .top)
+    }
+}
 
 private extension Array {
-    subscript(safe index: Int) -> Element? {
-        indices.contains(index) ? self[index] : nil
-    }
+    subscript(safe i: Int) -> Element? { indices.contains(i) ? self[i] : nil }
 }
 
-// MARK: - Previews
-
-#Preview("iPhone — Canard en marche") {
-    ZStack {
-        Color.bg.ignoresSafeArea()
-        VStack(alignment: .leading, spacing: 0) {
-            HStack {
-                Text("BAVL // PRESSE")
-                    .font(.system(.caption2, design: .monospaced))
-                    .foregroundStyle(Color.fgFaint)
-                Spacer()
-            }
-            .padding(.horizontal).padding(.top, 6).padding(.bottom, 4)
-            DuckLoadingView(
-                onComplete: {},
-                authReady: false,
-                log: ["Connexion au portail BAVL...", "Formulaire détecté..."],
-                currentMessage: "Envoi des identifiants..."
-            )
-        }
-    }
-}
-
-#Preview("iPad — deux colonnes") {
-    ContentView(vm: AppViewModel())
-}
+#Preview("iPhone") { ContentView(vm: AppViewModel()) }
+#Preview("iPad") { ContentView(vm: AppViewModel()) }
