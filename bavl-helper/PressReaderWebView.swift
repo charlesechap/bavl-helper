@@ -429,8 +429,15 @@ struct PressReaderSheet: View {
 
     @State private var currentURL: URL? = nil
     @State private var coordinator: PressReaderWebView.Coordinator? = nil
-    // Capturé une seule fois à l'init — consumePreloaded ne doit pas être appelé dans body
-    @State private var preloaded: WKWebView? = nil
+    // Consommé à l'init (avant tout rendu) — garanti disponible dans makeUIView
+    @State private var preloaded: WKWebView?
+
+    init(newspaper: Newspaper, vm: AppViewModel) {
+        self.newspaper = newspaper
+        self._vm = ObservedObject(wrappedValue: vm)
+        // consumePreloaded ici : appelé une seule fois, synchrone, avant tout body
+        self._preloaded = State(initialValue: vm.consumePreloaded(for: newspaper.pressReaderPath))
+    }
 
     // Mode d'affichage courant détecté depuis l'URL
     private var viewMode: ViewMode {
@@ -508,12 +515,6 @@ struct PressReaderSheet: View {
             .ignoresSafeArea(edges: .top)
         }
         .preferredColorScheme(.dark)
-        .onAppear {
-            // Consommer le WKWebView préchargé une seule fois
-            if preloaded == nil {
-                preloaded = vm.consumePreloaded(for: newspaper.pressReaderPath)
-            }
-        }
     }
 }
 
@@ -638,9 +639,10 @@ private struct _PressReaderWebViewBridge: UIViewRepresentable {
         context.coordinator.webView = wv
         context.coordinator.pressReaderPath = pressReaderPath
         context.coordinator.onURLChange = onURLChange
-        // Réinjecter les message handlers si absents (préchargé = config différente)
+        // Réinjecter les message handlers (remove d'abord pour éviter le doublon)
         let names = ["bearerToken", "pageBlank", "pageTitle"]
         for name in names {
+            wv.configuration.userContentController.removeScriptMessageHandler(forName: name)
             wv.configuration.userContentController.add(context.coordinator, name: name)
         }
         context.coordinator.startObservingURL(wv)
