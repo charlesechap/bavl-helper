@@ -154,8 +154,8 @@ struct DuckHeaderView: View {
                 // vitesse cible : 0.18s/cycle → screenWidth / (0.18/2) cycles en vol
                 // On calcule le step pour traverser screenWidth en ~3s (durée totale)
                 let cycleTime: Double = 0.18
-                let totalTime: Double = 3.0
-                let nCycles           = totalTime / cycleTime        // ~16.7
+                let totalTime: Double = 1.5
+                let nCycles           = totalTime / cycleTime        // ~8.3
                 let step              = screenWidth / CGFloat(nCycles)
 
                 func tick() {
