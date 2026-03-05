@@ -95,14 +95,7 @@ struct ContentView: View {
                     walking = false
                 }
             }
-            // Session directe (timestamp) : authReady=true sans animation
-            .onChange(of: vm.authReady) { _, ready in
-                if ready && !walking {
-                    if case .success = vm.loginState {
-                        showNewspapers = true
-                    }
-                }
-            }
+
         }
         .preferredColorScheme(.dark)
     }
