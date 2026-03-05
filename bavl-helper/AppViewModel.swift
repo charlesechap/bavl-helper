@@ -17,6 +17,9 @@ class AppViewModel: NSObject, ObservableObject {
     @Published var statusLog: [String] = []
     @Published var newspapers: [Newspaper] = []
     @Published var authReady: Bool = false
+    // WebViews préchargés pendant l'animation canard (un par journal)
+    // Clé = pressReaderPath, valeur = WKWebView prêt
+    @Published var preloadedWebViews: [String: WKWebView] = [:]
 
     private var webView: WKWebView?
     private let sessionDateKey = "lastLoginDate"
@@ -221,6 +224,37 @@ class AppViewModel: NSObject, ObservableObject {
         return dates.sorted().last
     }
 
+
+    // MARK: - Préchargement PressReader
+    // Lance un WKWebView caché par journal pendant l'animation canard.
+    // DuckLoadingView laisse ~3s → les pages ont le temps de commencer à charger.
+    func preloadPressReaderPages() {
+        for newspaper in newspapers {
+            guard let url = newspaper.resolvedURL else { continue }
+            guard preloadedWebViews[newspaper.pressReaderPath] == nil else { continue }
+            let config = WKWebViewConfiguration()
+            config.websiteDataStore = .default()
+            let wv = WKWebView(frame: CGRect(x: 0, y: 0, width: 390, height: 844), configuration: config)
+            wv.isHidden = true
+            wv.isUserInteractionEnabled = false
+            if let window = UIApplication.shared.connectedScenes
+                .compactMap({ $0 as? UIWindowScene })
+                .first?.windows.first {
+                window.addSubview(wv)
+            }
+            wv.load(URLRequest(url: url))
+            preloadedWebViews[newspaper.pressReaderPath] = wv
+            print("Préchargement: \(url.absoluteString)")
+        }
+    }
+
+    // Récupère le WKWebView préchargé et le retire du pool
+    func consumePreloaded(for path: String) -> WKWebView? {
+        let wv = preloadedWebViews.removeValue(forKey: path)
+        if wv != nil { print("Consommé preload: \(path)") }
+        return wv
+    }
+
     // MARK: - Teardown WebView
     private func teardownWebView() {
         webView?.navigationDelegate = nil
@@ -317,6 +351,7 @@ extension AppViewModel: WKNavigationDelegate {
                     loginState = .success
                     authReady = true
                     teardownWebView()
+                    preloadPressReaderPages()
                 } else {
                     // Redirigé ailleurs → session expirée, on relance le login
                     appendLog("Session expirée — reconnexion...")
@@ -346,6 +381,7 @@ extension AppViewModel: WKNavigationDelegate {
                 markSessionStart()
                 teardownWebView()
                 fetchLastEditionDates()
+                preloadPressReaderPages()
 
             } else {
                 print("Page intermédiaire: \(url)")
