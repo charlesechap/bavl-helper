@@ -47,9 +47,6 @@ struct ContentView: View {
                                 .padding(.bottom, 12)
                         }
 
-                        Divider().overlay(Color.termFaint).padding(.horizontal)
-                            .padding(.top, 2)
-
                         if walking {
                             WalkLogView(
                                 log:            vm.statusLog,
