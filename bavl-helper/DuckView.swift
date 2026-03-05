@@ -12,7 +12,7 @@ private struct S {
 }
 
 private func duckText(_ segs: [S]) -> Text {
-    segs.reduce(Text("")) { acc, s in acc + Text(s.t).foregroundColor(s.c) }
+    segs.reduce(Text("")) { acc, s in acc + Text(s.t).foregroundStyle(s.c) }
 }
 
 // frame_couch
@@ -52,35 +52,35 @@ struct DuckHeaderView: View {
     @State private var started            = false
 
     var body: some View {
-        let screenW = UIScreen.main.bounds.width
-
-        ZStack(alignment: .topLeading) {
-            VStack(alignment: .leading, spacing: 0) {
-                ForEach(Array(frame.enumerated()), id: \.offset) { _, segs in
-                    duckText(segs)
-                        .font(.system(.body, design: .monospaced))
-                        .lineLimit(1)
-                        .fixedSize()
+        GeometryReader { geo in
+            ZStack(alignment: .topLeading) {
+                VStack(alignment: .leading, spacing: 0) {
+                    ForEach(Array(frame.enumerated()), id: \.offset) { _, segs in
+                        duckText(segs)
+                            .font(.system(.body, design: .monospaced))
+                            .lineLimit(1)
+                            .fixedSize()
+                    }
+                }
+                .offset(x: positionX)
+            }
+            .frame(width: geo.size.width, height: 60, alignment: .topLeading)
+            .clipped()
+            .onChange(of: walking) { _, isWalking in
+                if isWalking {
+                    startWalk(screenWidth: geo.size.width)
+                } else {
+                    started   = false
+                    walkDone  = false
+                    positionX = 0
+                    frame     = couch
                 }
             }
-            .offset(x: positionX)
-        }
-        .frame(width: screenW, height: 60, alignment: .topLeading)
-        .clipped()
-        .onChange(of: walking) { _, isWalking in
-            if isWalking {
-                startWalk(screenWidth: screenW)
-            } else {
-                // Reset silencieux — PAS de retour visible, la vue disparaît avant
-                started   = false
-                walkDone  = false
-                positionX = 0
-                frame     = couch
+            .onChange(of: authReady) { _, ready in
+                if ready && walkDone { onWalkComplete() }
             }
         }
-        .onChange(of: authReady) { _, ready in
-            if ready && walkDone { onWalkComplete() }
-        }
+        .frame(maxWidth: .infinity, height: 60)
     }
 
     // Walk : -120 → screenW+120 en 3s
