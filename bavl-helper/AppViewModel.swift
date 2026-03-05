@@ -3,7 +3,7 @@ import Combine
 import WebKit
 import SwiftUI
 
-enum LoginState {
+enum LoginState: Equatable {
     case idle
     case loading
     case success
