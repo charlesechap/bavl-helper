@@ -50,7 +50,7 @@ private let frameBlink: [[S]] = [
 private let frameLev: [[S]] = [
     [S("    "), S("__", dkGreen)],
     [S(" __("), S("o", dkWhite), S(")"), S(">", dkYellow)],
-    [S(" \ "), S("<_ )", dkGray)],
+    [S(" \\ "), S("<_ )", dkGray)],
     [S(" "), S("_ _", dkYellow)],
 ]
 
@@ -62,7 +62,7 @@ private let frameLev: [[S]] = [
 private let marcheA: [[S]] = [
     [S("      "), S("__", dkGreen)],
     [S("   __("), S("o", dkWhite), S(")"), S(">", dkYellow)],
-    [S("   \ "), S("<_ )", dkGray)],
+    [S("   \\ "), S("<_ )", dkGray)],
     [S("    "), S("_ .", dkYellow)],
 ]
 
@@ -74,7 +74,7 @@ private let marcheA: [[S]] = [
 private let marcheB: [[S]] = [
     [S("      "), S("__", dkGreen)],
     [S("   __("), S("o", dkWhite), S(")"), S(">", dkYellow)],
-    [S("   \ "), S("<_ )", dkGray)],
+    [S("   \\ "), S("<_ )", dkGray)],
     [S("    "), S(". _", dkYellow)],
 ]
 
