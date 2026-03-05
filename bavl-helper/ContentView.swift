@@ -128,7 +128,7 @@ struct ContentView: View {
             onComplete: {
                 withAnimation(.easeInOut(duration: 0.3)) {
                     animating      = false
-                    showNewspapers = (vm.loginState == .success)
+                    if case .success = vm.loginState { showNewspapers = true }
                 }
             },
             authReady:      vm.authReady,
