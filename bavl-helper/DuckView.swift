@@ -11,8 +11,17 @@ private struct S {
     init(_ t: String, _ c: Color = Color(white: 0.82)) { self.t = t; self.c = c }
 }
 
-private func duckText(_ segs: [S]) -> Text {
-    segs.reduce(Text("")) { acc, s in acc + Text(s.t).foregroundStyle(s.c) }
+// iOS 26 : Text + Text deprecated → HStack de Text
+@ViewBuilder
+private func duckLine(_ segs: [S]) -> some View {
+    HStack(spacing: 0) {
+        ForEach(Array(segs.enumerated()), id: \.offset) { _, s in
+            Text(s.t).foregroundStyle(s.c)
+        }
+    }
+    .font(.system(.body, design: .monospaced))
+    .lineLimit(1)
+    .fixedSize()
 }
 
 // frame_couch
@@ -56,15 +65,11 @@ struct DuckHeaderView: View {
             ZStack(alignment: .topLeading) {
                 VStack(alignment: .leading, spacing: 0) {
                     ForEach(Array(frame.enumerated()), id: \.offset) { _, segs in
-                        duckText(segs)
-                            .font(.system(.body, design: .monospaced))
-                            .lineLimit(1)
-                            .fixedSize()
+                        duckLine(segs)
                     }
                 }
                 .offset(x: positionX)
             }
-            .frame(width: geo.size.width, height: 60, alignment: .topLeading)
             .clipped()
             .onChange(of: walking) { _, isWalking in
                 if isWalking {
@@ -80,11 +85,9 @@ struct DuckHeaderView: View {
                 if ready && walkDone { onWalkComplete() }
             }
         }
-        .frame(maxWidth: .infinity, height: 60)
+        .frame(height: 60)
     }
 
-    // Walk : -120 → screenW+120 en 3s
-    // À la fin : onWalkComplete() immédiatement (pas de retour au repos visible)
     private func startWalk(screenWidth: CGFloat) {
         guard !started else { return }
         started   = true
@@ -94,9 +97,9 @@ struct DuckHeaderView: View {
         positionX = -duckW
 
         let endX      = screenWidth + duckW
-        let totalDist = endX - (-duckW)      // screenWidth + 240
+        let totalDist = endX + duckW             // screenWidth + 240
         let cycleTime: Double = 0.18
-        let nCycles   = 3.0 / cycleTime      // 16.67
+        let nCycles   = 3.0 / cycleTime          // 16.67
         let step      = totalDist / CGFloat(nCycles)
 
         func tick() {
@@ -110,7 +113,6 @@ struct DuckHeaderView: View {
                     if positionX < endX {
                         tick()
                     } else {
-                        // Canard sorti — déclencher immédiatement sans retour visible
                         walkDone = true
                         if authReady { onWalkComplete() }
                     }
@@ -168,9 +170,7 @@ struct _DuckStaticView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             ForEach(Array(couch.enumerated()), id: \.offset) { _, segs in
-                duckText(segs)
-                    .font(.system(.body, design: .monospaced))
-                    .lineLimit(1).fixedSize()
+                duckLine(segs)
             }
         }
     }
