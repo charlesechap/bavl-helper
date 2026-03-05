@@ -233,10 +233,13 @@ class AppViewModel: NSObject, ObservableObject {
         }
     }
 
-    // Récupère le WKWebView préchargé et le retire du pool
+    // Récupère le WKWebView préchargé, le retire du pool et de la window cachée.
+    // Le bridge SwiftUI le réattache comme UIView visible.
     func consumePreloaded(for path: String) -> WKWebView? {
-        let wv = preloadedWebViews.removeValue(forKey: path)
-        if wv != nil { print("Consommé preload: \(path)") }
+        guard let wv = preloadedWebViews.removeValue(forKey: path) else { return nil }
+        // Retirer de la window cachée — SwiftUI va le réattacher dans PressReaderSheet
+        wv.removeFromSuperview()
+        print("Consommé preload: \(path) — isLoading=\(wv.isLoading) url=\(wv.url?.absoluteString ?? "nil")")
         return wv
     }
 
