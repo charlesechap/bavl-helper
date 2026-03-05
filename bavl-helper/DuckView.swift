@@ -15,6 +15,7 @@ private func duckText(_ segs: [S]) -> Text {
     segs.reduce(Text("")) { acc, s in acc + Text(s.t).foregroundColor(s.c) }
 }
 
+// frame_couch
 private let couch: [[S]] = [
     [S("               ")],
     [S("   "), S("__", dkGreen), S("        ")],
@@ -22,17 +23,20 @@ private let couch: [[S]] = [
     [S("               ")],
 ]
 
+// marche_A — patte avant "_ ."
 private let marcheA: [[S]] = [
     [S("      "), S("__", dkGreen), S("       ")],
     [S("   __("), S("o", dkWhite), S(")"), S(">", dkYellow), S("     ")],
-    [S("   \\ "), S("<_ )", dkGray), S("      ")],
-    [S("    "), S("_ .", dkYellow), S("       ")],
+    [S("   "), S("\\", Color(white: 0.82)), S(" "), S("<_ )", dkGray)],
+    [S("    "), S("_ .", dkYellow)],
 ]
+
+// marche_B — patte arrière ". _"
 private let marcheB: [[S]] = [
     [S("      "), S("__", dkGreen), S("       ")],
     [S("   __("), S("o", dkWhite), S(")"), S(">", dkYellow), S("     ")],
-    [S("   \\ "), S("<_ )", dkGray), S("      ")],
-    [S("    "), S(". _", dkYellow), S("       ")],
+    [S("   "), S("\\", Color(white: 0.82)), S(" "), S("<_ )", dkGray)],
+    [S("    "), S(". _", dkYellow)],
 ]
 
 // MARK: - DuckHeaderView
@@ -48,7 +52,6 @@ struct DuckHeaderView: View {
     @State private var started            = false
 
     var body: some View {
-        // Utiliser UIScreen pour avoir la vraie largeur, indépendamment du GeometryReader parent
         let screenW = UIScreen.main.bounds.width
 
         ZStack(alignment: .topLeading) {
@@ -62,12 +65,13 @@ struct DuckHeaderView: View {
             }
             .offset(x: positionX)
         }
-        .frame(width: screenW, height: 56, alignment: .topLeading)
+        .frame(width: screenW, height: 60, alignment: .topLeading)
         .clipped()
         .onChange(of: walking) { _, isWalking in
             if isWalking {
                 startWalk(screenWidth: screenW)
             } else {
+                // Reset silencieux — PAS de retour visible, la vue disparaît avant
                 started   = false
                 walkDone  = false
                 positionX = 0
@@ -79,38 +83,35 @@ struct DuckHeaderView: View {
         }
     }
 
-    // Walk : entre hors écran à gauche (-canardWidth ≈ -120)
-    // et sort complètement à droite (screenW + 120)
-    // Durée totale 3s, rythme 0.18s/cycle
+    // Walk : -120 → screenW+120 en 3s
+    // À la fin : onWalkComplete() immédiatement (pas de retour au repos visible)
     private func startWalk(screenWidth: CGFloat) {
         guard !started else { return }
         started   = true
         walkDone  = false
 
-        let duckWidth: CGFloat = 120
-        let startX    = -duckWidth
-        let endX      = screenWidth + duckWidth
-        positionX     = startX
+        let duckW: CGFloat = 120
+        positionX = -duckW
 
-        let totalDist = endX - startX          // screenWidth + 240
-        let cycleTime = 0.18
-        let nCycles   = 3.0 / cycleTime        // 16.67
+        let endX      = screenWidth + duckW
+        let totalDist = endX - (-duckW)      // screenWidth + 240
+        let cycleTime: Double = 0.18
+        let nCycles   = 3.0 / cycleTime      // 16.67
         let step      = totalDist / CGFloat(nCycles)
 
         func tick() {
             frame = marcheA
             DispatchQueue.main.asyncAfter(deadline: .now() + cycleTime * 0.5) {
                 frame = marcheB
-                withAnimation(.linear(duration: cycleTime * 0.5)) {
+                withAnimation(.linear(duration: cycleTime * 0.4)) {
                     positionX += step
                 }
                 DispatchQueue.main.asyncAfter(deadline: .now() + cycleTime * 0.5) {
                     if positionX < endX {
                         tick()
                     } else {
-                        positionX = 0
-                        frame     = couch
-                        walkDone  = true
+                        // Canard sorti — déclencher immédiatement sans retour visible
+                        walkDone = true
                         if authReady { onWalkComplete() }
                     }
                 }
@@ -171,17 +172,6 @@ struct _DuckStaticView: View {
                     .font(.system(.body, design: .monospaced))
                     .lineLimit(1).fixedSize()
             }
-        }
-    }
-}
-
-#Preview {
-    ZStack {
-        Color.termBg.ignoresSafeArea()
-        VStack(spacing: 0) {
-            DuckHeaderView(walking: true, authReady: false, onWalkComplete: {})
-            Divider().overlay(Color.termFaint)
-            WalkLogView(log: ["Connexion BAVL..."], currentMessage: "Envoi identifiants...")
         }
     }
 }
