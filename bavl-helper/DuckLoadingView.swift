@@ -2,23 +2,42 @@ import SwiftUI
 import Combine
 
 // MARK: - DuckLoadingView
-// Animation 3 secondes. Pendant ce temps l'auth tourne en background.
-// onComplete() déclenché quand canard sorti À DROITE et authReady == true.
-// Si auth finie avant → attend fin traversée.
-// Si traversée finie avant → attend authReady.
+//
+// Frames du script Python duck.py :
+//   marche_A : patte avant posée
+//   marche_B : patte arrière posée
+//
+// Timing Python : 0.18s/cycle, pas = 3 chars ≈ 8pt/cycle
+// Sur iPhone (375pt utile) depuis x = -120 jusqu'à x = 400 → ~520pt
+// À ~8pt/cycle → 65 cycles → 65 × 0.18s ≈ 11.7s  (trop long)
+//
+// Cible 3s → stepSize = 520 / (3.0 / 0.18) ≈ 31pt/cycle
+// On garde le rythme 0.18s mais on agrandit le pas proportionnellement.
+//
+// onComplete() : quand canard sorti à droite ET authReady == true.
 
 struct DuckLoadingView: View {
-    let onComplete: () -> Void
-    let authReady: Bool
-    let log: [String]
+    let onComplete:     () -> Void
+    let authReady:      Bool
+    let log:            [String]
     let currentMessage: String
 
-    // Deux frames — boiterie Python fidèle
-    private let frameA = ["      __     ", "   __( o)>   ", "   \\ <_ )    ", "    `--'     ", "     J       "]
-    private let frameB = ["               ", "      __       ", "   __( o)>     ", "   \\ <_ )      ", "    `--'J      "]
+    // Frames exactes du script Python (sans codes ANSI)
+    private let frameA = [
+        "      __       ",
+        "   __(o)>      ",
+        "   \\ <_ )      ",
+        "    _ .        ",
+    ]
+    private let frameB = [
+        "      __       ",
+        "   __(o)>      ",
+        "   \\ <_ )      ",
+        "    . _        ",
+    ]
 
     @State private var frameIndex = 0
-    @State private var positionX: CGFloat = -140
+    @State private var positionX: CGFloat = -120
     @State private var duckDone  = false
 
     private var frame: [String] { frameIndex == 0 ? frameA : frameB }
@@ -26,7 +45,7 @@ struct DuckLoadingView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
 
-            // Zone canard
+            // Zone canard pleine largeur
             GeometryReader { geo in
                 ZStack(alignment: .topLeading) {
                     VStack(alignment: .leading, spacing: 0) {
@@ -42,13 +61,12 @@ struct DuckLoadingView: View {
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                 .clipped()
-                .onAppear { startWalk(width: geo.size.width) }
+                .onAppear { startWalk(screenWidth: geo.size.width) }
             }
-            .frame(height: 88)
+            .frame(height: 72)
             .padding(.bottom, 10)
 
-            TerminalSeparator()
-                .padding(.bottom, 10)
+            Divider().overlay(Color.termFaint).padding(.bottom, 10)
 
             // Log
             VStack(alignment: .leading, spacing: 5) {
@@ -74,26 +92,29 @@ struct DuckLoadingView: View {
         }
     }
 
-    // MARK: - Animation 3 secondes
-    // Écran ~390pt, départ -140pt → total ~550pt
-    // Durée cible : 3.0s
-    // Cycle : frameA(0.18s) + frameB(0.12s) = 0.30s/cycle → ~10 cycles
-    // Pas/cycle : 550 / 10 = 55pt
+    // MARK: - Walk
+    //
+    // Rythme Python : 0.18s/cycle
+    // Pas ajusté pour traverser en ~3s : stepSize = totalDist / (3.0 / 0.18)
 
-    private func startWalk(width: CGFloat) {
-        let totalDistance = width + 160   // de -140 jusqu'à width+20
-        let cycleDuration = 0.30          // secondes par cycle
-        let stepSize = totalDistance / (3.0 / cycleDuration)   // pts/cycle ≈ 55pt
+    private func startWalk(screenWidth: CGFloat) {
+        // Distance totale : de -120 jusqu'à screenWidth + 20
+        let totalDist  = screenWidth + 140.0
+        let cycleTime  = 0.18                          // rythme Python fidèle
+        let nCycles    = 3.0 / cycleTime               // ~16.7 cycles pour 3s
+        let stepSize   = totalDist / nCycles           // pts par cycle
 
         func step() {
+            // Frame A
             frameIndex = 0
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.18) {
-                withAnimation(.linear(duration: 0.10)) {
-                    positionX += stepSize
-                    frameIndex = 1
+            DispatchQueue.main.asyncAfter(deadline: .now() + cycleTime * 0.6) {
+                // Frame B + déplacement
+                withAnimation(.linear(duration: cycleTime * 0.3)) {
+                    positionX  += stepSize
+                    frameIndex  = 1
                 }
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
-                    if positionX < width + 20 {
+                DispatchQueue.main.asyncAfter(deadline: .now() + cycleTime * 0.4) {
+                    if positionX < screenWidth + 20 {
                         step()
                     } else {
                         duckDone = true
@@ -107,7 +128,7 @@ struct DuckLoadingView: View {
     }
 }
 
-// MARK: - Spinner inline
+// MARK: - Spinner
 
 private struct SpinnerView: View {
     private let frames = ["|", "/", "─", "\\"]
