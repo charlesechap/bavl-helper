@@ -117,7 +117,7 @@ struct DuckHeaderView: View {
                 if ready && walkDone { onWalkComplete() }
             }
         }
-        .frame(height: 60)
+        .frame(height: 88)
         .clipped()
         .onAppear { startBlink() }
         .onDisappear { stopBlink() }
