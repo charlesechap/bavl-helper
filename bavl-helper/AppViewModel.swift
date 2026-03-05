@@ -52,12 +52,14 @@ class AppViewModel: NSObject, ObservableObject {
             return
         }
 
-        // Si le timestamp est valide → session directe sans animation
+        // Session valide → animation canard pendant le préchargement, puis liste
         if let lastLogin = UserDefaults.standard.object(forKey: sessionDateKey) as? Date {
             let elapsed = Date().timeIntervalSince(lastLogin)
             if elapsed < sessionDuration {
-                loginState = .success
-                authReady  = true
+                statusLog = []
+                appendLog("Session active...")
+                loginState = .loading   // déclenche l'animation canard
+                authReady  = true       // le canard peut finir dès que l'anim est terminée
                 fetchLastEditionDates()
                 preloadPressReaderPages()
                 return
