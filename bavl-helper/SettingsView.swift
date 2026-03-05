@@ -4,119 +4,146 @@ struct SettingsView: View {
     @ObservedObject var vm: AppViewModel
     @Environment(\.dismiss) var dismiss
 
-    @State private var cardNumber = ""
-    @State private var password   = ""
-    @State private var showAdd    = false
-    @State private var newName    = ""
-    @State private var newPath    = ""
+    @State private var cardNumber: String = ""
+    @State private var password: String = ""
+    @State private var showAddNewspaper = false
+    @State private var newName: String = ""
+    @State private var newPath: String = ""
     @State private var newMode: ViewMode = .text
 
     var body: some View {
         NavigationStack {
             ZStack {
-                Color.termBg.ignoresSafeArea()
+                Color.black.ignoresSafeArea()
 
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 16) {
-
-                        // Identifiants
-                        TerminalFrame(title: "IDENTIFIANTS") {
-                            VStack(alignment: .leading, spacing: 12) {
-                                TerminalField(label: "N° de carte",  text: $cardNumber, secure: false)
-                                TerminalField(label: "Mot de passe", text: $password,   secure: true)
-                            }
-                            .padding(12)
-                        }
-
-                        // Journaux
-                        TerminalFrame(title: "JOURNAUX") {
-                            VStack(alignment: .leading, spacing: 0) {
-                                ForEach(Array(vm.newspapers.enumerated()), id: \.element.id) { i, paper in
-                                    newspaperRow(paper)
-                                    if i < vm.newspapers.count - 1 {
-                                        TerminalSeparator().padding(.horizontal, 12)
-                                    }
-                                }
-
-                                TerminalSeparator().padding(.horizontal, 12)
-
-                                Button {
-                                    showAdd = true
-                                } label: {
-                                    Text("+ AJOUTER_")
-                                        .font(.system(.body, design: .monospaced))
-                                        .foregroundStyle(Color.termFg)
-                                        .padding(.horizontal, 12)
-                                        .padding(.vertical, 10)
-                                }
-                                .buttonStyle(.plain)
-                            }
-                            .padding(.vertical, 4)
-                        }
-
-                        // Aide
-                        TerminalFrame(title: "AIDE") {
-                            Text("  Chemin PressReader : ouvrez un journal sur pressreader.com et copiez la portion après pressreader.com/\n  ex: switzerland/le-temps")
-                                .font(.system(.caption2, design: .monospaced))
-                                .foregroundStyle(Color.termFaint)
-                                .lineSpacing(3)
-                                .padding(12)
-                        }
-
-                        TerminalSignature()
+                List {
+                    // Identifiants
+                    Section {
+                        monoField("N° de carte", text: $cardNumber)
+                        monoSecure("Mot de passe", text: $password)
+                    } header: {
+                        monoHeader("// IDENTIFIANTS")
                     }
-                    .padding(16)
+
+                    // Journaux
+                    Section {
+                        ForEach(Array(vm.newspapers.enumerated()), id: \.element.id) { _, paper in
+                            newspaperRow(paper)
+                        }
+                        .onDelete { vm.removeNewspaper(at: $0) }
+
+                        Button {
+                            showAddNewspaper = true
+                        } label: {
+                            Text("+ AJOUTER_")
+                                .font(.system(.body, design: .monospaced))
+                                .foregroundStyle(.white)
+                        }
+                        .listRowBackground(Color.black)
+                    } header: {
+                        monoHeader("// JOURNAUX")
+                    }
+
+                    // Aide
+                    Section {
+                        Text("Chemin PressReader : ouvrez un journal sur pressreader.com et copiez la portion après pressreader.com/ (ex: switzerland/le-temps)")
+                            .font(.system(.caption2, design: .monospaced))
+                            .foregroundStyle(.white.opacity(0.4))
+                            .listRowBackground(Color.black)
+                    } header: {
+                        monoHeader("// AIDE")
+                    }
                 }
+                .scrollContentBackground(.hidden)
+                .background(Color.black)
             }
             .navigationBarTitleDisplayMode(.inline)
-            .toolbarBackground(Color.termBg, for: .navigationBar)
+            .toolbarBackground(Color.black, for: .navigationBar)
             .toolbarColorScheme(.dark, for: .navigationBar)
             .toolbar {
                 ToolbarItem(placement: .principal) {
                     Text("[CFG]")
                         .font(.system(.body, design: .monospaced))
-                        .foregroundStyle(Color.termFg)
+                        .foregroundStyle(.white)
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("OK") {
-                        let changed = cardNumber != vm.cardNumber || password != vm.password
+                        // FIX: détecter si les credentials ont changé pour relancer la connexion
+                        let credentialsChanged = cardNumber != vm.cardNumber || password != vm.password
                         vm.cardNumber = cardNumber
-                        vm.password   = password
+                        vm.password = password
                         dismiss()
-                        if changed { vm.login() }
+                        if credentialsChanged {
+                            vm.login()
+                        }
                     }
                     .font(.system(.body, design: .monospaced))
-                    .foregroundStyle(Color.termFg)
+                    .foregroundStyle(.white)
                 }
                 ToolbarItem(placement: .topBarLeading) {
                     Button("X") { dismiss() }
                         .font(.system(.body, design: .monospaced))
-                        .foregroundStyle(Color.termDim)
+                        .foregroundStyle(.white.opacity(0.6))
                 }
             }
             .onAppear {
                 cardNumber = vm.cardNumber
-                password   = vm.password
+                password = vm.password
             }
-            .sheet(isPresented: $showAdd) { addSheet }
+            .sheet(isPresented: $showAddNewspaper) {
+                addNewspaperSheet
+            }
         }
         .preferredColorScheme(.dark)
     }
 
-    // MARK: - Rangée journal
+    // MARK: - Sous-vues helpers
+
+    private func monoHeader(_ text: String) -> some View {
+        Text(text)
+            .font(.system(.caption, design: .monospaced))
+            .foregroundStyle(.white.opacity(0.5))
+    }
+
+    private func monoField(_ label: String, text: Binding<String>) -> some View {
+        HStack {
+            Text("> ")
+                .font(.system(.body, design: .monospaced))
+                .foregroundStyle(.white.opacity(0.4))
+            TextField(label, text: text)
+                .font(.system(.body, design: .monospaced))
+                .foregroundStyle(.white)
+                .keyboardType(.asciiCapable)
+                .autocorrectionDisabled()
+                .textInputAutocapitalization(.never)
+        }
+        .listRowBackground(Color.white.opacity(0.05))
+    }
+
+    private func monoSecure(_ label: String, text: Binding<String>) -> some View {
+        HStack {
+            Text("> ")
+                .font(.system(.body, design: .monospaced))
+                .foregroundStyle(.white.opacity(0.4))
+            SecureField(label, text: text)
+                .font(.system(.body, design: .monospaced))
+                .foregroundStyle(.white)
+        }
+        .listRowBackground(Color.white.opacity(0.05))
+    }
 
     private func newspaperRow(_ paper: Newspaper) -> some View {
         HStack {
             VStack(alignment: .leading, spacing: 2) {
                 Text(paper.name.uppercased())
                     .font(.system(.body, design: .monospaced))
-                    .foregroundStyle(Color.termFg)
+                    .foregroundStyle(.white)
                 Text("[\(paper.viewMode.label.uppercased())] \(paper.pressReaderPath)")
                     .font(.system(.caption2, design: .monospaced))
-                    .foregroundStyle(Color.termFaint)
+                    .foregroundStyle(.white.opacity(0.4))
             }
             Spacer()
-            // Toggle TXT/PDF
+            // Toggle mode
             Button {
                 if let idx = vm.newspapers.firstIndex(where: { $0.id == paper.id }) {
                     vm.newspapers[idx].viewMode = paper.viewMode == .text ? .layout : .text
@@ -125,79 +152,66 @@ struct SettingsView: View {
             } label: {
                 Text(paper.viewMode == .text ? "[TXT]" : "[PDF]")
                     .font(.system(.caption, design: .monospaced))
-                    .foregroundStyle(Color.termDim)
+                    .foregroundStyle(.white.opacity(0.7))
                     .padding(4)
-                    .overlay(Rectangle().stroke(Color.termFaint, lineWidth: 1))
-            }
-            .buttonStyle(.plain)
-
-            // Supprimer
-            Button {
-                if let idx = vm.newspapers.firstIndex(where: { $0.id == paper.id }) {
-                    vm.newspapers.remove(at: idx)
-                    vm.saveNewspapers()
-                }
-            } label: {
-                Text("[X]")
-                    .font(.system(.caption, design: .monospaced))
-                    .foregroundStyle(Color.termFaint)
-                    .padding(4)
+                    .overlay(RoundedRectangle(cornerRadius: 3).stroke(Color.white.opacity(0.3)))
             }
             .buttonStyle(.plain)
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
+        .listRowBackground(Color.black)
     }
 
-    // MARK: - Sheet ajout journal
-
-    private var addSheet: some View {
+    private var addNewspaperSheet: some View {
         NavigationStack {
             ZStack {
-                Color.termBg.ignoresSafeArea()
-                ScrollView {
-                    VStack(spacing: 16) {
-                        TerminalFrame(title: "NOM") {
-                            TerminalField(label: "ex: Le Monde", text: $newName).padding(12)
-                        }
-                        TerminalFrame(title: "CHEMIN PRESSREADER") {
-                            TerminalField(label: "ex: france/le-monde", text: $newPath).padding(12)
-                        }
-                        TerminalFrame(title: "MODE PAR DÉFAUT") {
-                            Picker("", selection: $newMode) {
-                                ForEach(ViewMode.allCases, id: \.self) { Text($0.label).tag($0) }
+                Color.black.ignoresSafeArea()
+                List {
+                    Section {
+                        monoField("ex: Le Monde", text: $newName)
+                    } header: { monoHeader("// NOM") }
+
+                    Section {
+                        monoField("ex: france/le-monde", text: $newPath)
+                    } header: { monoHeader("// CHEMIN PRESSREADER") }
+
+                    Section {
+                        Picker("Mode", selection: $newMode) {
+                            ForEach(ViewMode.allCases, id: \.self) { mode in
+                                Text(mode.label).tag(mode)
                             }
-                            .pickerStyle(.segmented)
-                            .padding(12)
                         }
-                    }
-                    .padding(16)
+                        .pickerStyle(.segmented)
+                        .listRowBackground(Color.black)
+                    } header: { monoHeader("// MODE PAR DÉFAUT") }
                 }
+                .scrollContentBackground(.hidden)
+                .background(Color.black)
             }
             .navigationBarTitleDisplayMode(.inline)
-            .toolbarBackground(Color.termBg, for: .navigationBar)
+            .toolbarBackground(Color.black, for: .navigationBar)
             .toolbarColorScheme(.dark, for: .navigationBar)
             .toolbar {
                 ToolbarItem(placement: .principal) {
                     Text("[+ JOURNAL]")
                         .font(.system(.caption, design: .monospaced))
-                        .foregroundStyle(Color.termFg)
+                        .foregroundStyle(.white)
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("OK") {
                         guard !newName.isEmpty, !newPath.isEmpty else { return }
                         vm.addNewspaper(Newspaper(name: newName, pressReaderPath: newPath, viewMode: newMode))
-                        newName = ""; newPath = ""; newMode = .text
-                        showAdd = false
+                        newName = ""; newPath = ""
+                        newMode = .text
+                        showAddNewspaper = false
                     }
                     .disabled(newName.isEmpty || newPath.isEmpty)
                     .font(.system(.body, design: .monospaced))
-                    .foregroundStyle(Color.termFg)
+                    .foregroundStyle(.white)
                 }
                 ToolbarItem(placement: .topBarLeading) {
-                    Button("X") { showAdd = false }
+                    Button("X") { showAddNewspaper = false }
                         .font(.system(.body, design: .monospaced))
-                        .foregroundStyle(Color.termDim)
+                        .foregroundStyle(.white.opacity(0.6))
                 }
             }
         }
