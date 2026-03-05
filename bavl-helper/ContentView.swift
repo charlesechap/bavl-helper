@@ -1,12 +1,14 @@
 import SwiftUI
 import Combine
+import WebKit
 
 struct ContentView: View {
     @ObservedObject var vm: AppViewModel
-    @State private var showSettings   = false
-    @State private var selectedPaper: Newspaper? = nil
-    @State private var showNewspapers = false
-    @State private var walking        = false
+    @State private var showSettings    = false
+    @State private var selectedPaper:  Newspaper? = nil
+    @State private var selectedPreload: WKWebView? = nil   // capturé au tap
+    @State private var showNewspapers  = false
+    @State private var walking         = false
     @Environment(\.horizontalSizeClass) private var hSizeClass
     private var isIPad: Bool { hSizeClass == .regular }
 
@@ -77,7 +79,7 @@ struct ContentView: View {
             }
             .sheet(isPresented: $showSettings) { SettingsView(vm: vm) }
             .fullScreenCover(item: $selectedPaper) { paper in
-                PressReaderSheet(newspaper: paper, vm: vm)
+                PressReaderSheet(newspaper: paper, preloadedWebView: selectedPreload)
             }
             .onAppear {
                 showNewspapers = false
@@ -209,7 +211,10 @@ struct ContentView: View {
 
     @ViewBuilder
     private func newspaperRow(paper: Newspaper, index: Int) -> some View {
-        Button { selectedPaper = paper } label: {
+        Button {
+            selectedPreload = vm.consumePreloaded(for: paper.pressReaderPath)
+            selectedPaper   = paper
+        } label: {
             HStack(alignment: .top, spacing: 8) {
                 Text(String(format: "%02d.", index + 1))
                     .font(.system(.body, design: .monospaced))
