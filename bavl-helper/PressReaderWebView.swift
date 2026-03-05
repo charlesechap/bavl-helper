@@ -429,6 +429,8 @@ struct PressReaderSheet: View {
 
     @State private var currentURL: URL? = nil
     @State private var coordinator: PressReaderWebView.Coordinator? = nil
+    // Capturé une seule fois à l'init — consumePreloaded ne doit pas être appelé dans body
+    @State private var preloaded: WKWebView? = nil
 
     // Mode d'affichage courant détecté depuis l'URL
     private var viewMode: ViewMode {
@@ -464,7 +466,7 @@ struct PressReaderSheet: View {
                     _PressReaderWebViewBridge(
                         initialURL: url,
                         pressReaderPath: newspaper.pressReaderPath,
-                        preloadedWebView: vm.consumePreloaded(for: newspaper.pressReaderPath),
+                        preloadedWebView: preloaded,
                         onCoordinatorReady: { coordinator = $0 },
                         onURLChange: { currentURL = $0 }
                     )
@@ -506,6 +508,12 @@ struct PressReaderSheet: View {
             .ignoresSafeArea(edges: .top)
         }
         .preferredColorScheme(.dark)
+        .onAppear {
+            // Consommer le WKWebView préchargé une seule fois
+            if preloaded == nil {
+                preloaded = vm.consumePreloaded(for: newspaper.pressReaderPath)
+            }
+        }
     }
 }
 
