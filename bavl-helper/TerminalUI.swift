@@ -15,7 +15,7 @@ struct TerminalFrame<Content: View>: View {
     let title: String?
     @ViewBuilder let content: () -> Content
 
-    init(title: String? = nil, @ViewBuilder content: () -> Content) {
+    init(title: String? = nil, @ViewBuilder content: @escaping () -> Content) {
         self.title = title
         self.content = content
     }
@@ -159,3 +159,4 @@ struct TerminalButton: View {
         .disabled(!enabled)
     }
 }
+
