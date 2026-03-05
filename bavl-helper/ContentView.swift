@@ -9,46 +9,13 @@ private extension Color {
     static let fgFaint = Color(red: 0.30, green: 0.30, blue: 0.30)
 }
 
-// MARK: - ASCII Log View
-
-struct ASCIISpinnerView: View {
-    let log: [String]
-    let currentMessage: String
-    private let frames = ["|", "/", "─", "\\"]
-    @State private var idx = 0
-    private let timer = Timer.publish(every: 0.12, on: .main, in: .common).autoconnect()
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            ForEach(log.dropLast(), id: \.self) { line in
-                Text("  ✓ \(line)")
-                    .font(.system(.caption, design: .monospaced))
-                    .foregroundStyle(Color.fgDim)
-            }
-            if !currentMessage.isEmpty {
-                HStack(spacing: 6) {
-                    Text(frames[idx])
-                        .font(.system(.body, design: .monospaced))
-                        .foregroundStyle(Color.fg)
-                        .onReceive(timer) { _ in idx = (idx + 1) % frames.count }
-                    Text(currentMessage)
-                        .font(.system(.caption, design: .monospaced))
-                        .foregroundStyle(Color.fg)
-                }
-            }
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .padding()
-    }
-}
-
 // MARK: - ContentView
 
 struct ContentView: View {
-    // vm injecté depuis BAVLHelperApp (partagé avec OnboardingView)
     @ObservedObject var vm: AppViewModel
     @State private var showSettings = false
     @State private var selectedNewspaper: Newspaper? = nil
+    @State private var showNewspapers: Bool = false
     @Environment(\.horizontalSizeClass) private var hSizeClass
 
     private var isIPad: Bool { hSizeClass == .regular }
@@ -80,13 +47,38 @@ struct ContentView: View {
                     // Contenu principal
                     if case .loading = vm.loginState {
                         centeredContent {
-                            DuckLoadingView(log: vm.statusLog, currentMessage: vm.statusMessage)
+                            DuckLoadingView(
+                                onComplete: {
+                                    withAnimation(.easeInOut(duration: 0.4)) {
+                                        showNewspapers = true
+                                    }
+                                },
+                                authReady: vm.authReady,
+                                log: vm.statusLog,
+                                currentMessage: vm.statusMessage
+                            )
                         }
                     } else if case .success = vm.loginState {
-                        if isIPad {
-                            iPadNewspaperView
+                        if showNewspapers {
+                            if isIPad {
+                                iPadNewspaperView
+                            } else {
+                                newspaperListView
+                            }
                         } else {
-                            newspaperListView
+                            // Auth réussie mais canard pas encore fini — on attend
+                            centeredContent {
+                                DuckLoadingView(
+                                    onComplete: {
+                                        withAnimation(.easeInOut(duration: 0.4)) {
+                                            showNewspapers = true
+                                        }
+                                    },
+                                    authReady: vm.authReady,
+                                    log: vm.statusLog,
+                                    currentMessage: vm.statusMessage
+                                )
+                            }
                         }
                     } else {
                         centeredContent {
@@ -114,14 +106,16 @@ struct ContentView: View {
                 PressReaderSheet(newspaper: paper)
             }
             .onAppear {
-                // Les credentials sont forcément remplis (onboarding terminé)
+                showNewspapers = false
+                vm.authReady = false
                 vm.checkExistingSession()
             }
         }
         .preferredColorScheme(.dark)
     }
 
-    // Centrage avec largeur max pour iPad
+    // MARK: - Centrage iPad
+
     @ViewBuilder
     private func centeredContent<C: View>(@ViewBuilder content: () -> C) -> some View {
         HStack {
@@ -160,7 +154,7 @@ struct ContentView: View {
         }
     }
 
-    // MARK: - Liste iPhone (colonne unique)
+    // MARK: - Liste iPhone
 
     private var newspaperListView: some View {
         ScrollView {
@@ -177,38 +171,29 @@ struct ContentView: View {
         }
     }
 
-    // MARK: - Liste iPad (deux colonnes)
+    // MARK: - Liste iPad
 
     private var iPadNewspaperView: some View {
         ScrollView {
             sessionHeader.padding(.horizontal)
             Divider().overlay(Color.fgFaint).padding(.horizontal)
-
             let pairs = stride(from: 0, to: vm.newspapers.count, by: 2).map { i in
                 (i, i + 1 < vm.newspapers.count ? i + 1 : nil as Int?)
             }
-
             LazyVStack(alignment: .leading, spacing: 0) {
                 ForEach(pairs, id: \.0) { left, right in
                     HStack(alignment: .top, spacing: 0) {
                         if let paper = vm.newspapers[safe: left] {
-                            newspaperRow(paper: paper, index: left)
-                                .frame(maxWidth: .infinity)
+                            newspaperRow(paper: paper, index: left).frame(maxWidth: .infinity)
                         }
-                        Rectangle()
-                            .fill(Color.fgFaint)
-                            .frame(width: 1)
-                            .padding(.vertical, 4)
+                        Rectangle().fill(Color.fgFaint).frame(width: 1).padding(.vertical, 4)
                         if let idx = right, let paper = vm.newspapers[safe: idx] {
-                            newspaperRow(paper: paper, index: idx)
-                                .frame(maxWidth: .infinity)
+                            newspaperRow(paper: paper, index: idx).frame(maxWidth: .infinity)
                         } else {
                             Color.clear.frame(maxWidth: .infinity)
                         }
                     }
-                    if pairs.last?.0 != left {
-                        separatorLine.padding(.horizontal)
-                    }
+                    if pairs.last?.0 != left { separatorLine.padding(.horizontal) }
                 }
             }
             .padding(.horizontal)
@@ -276,7 +261,7 @@ private extension Array {
 
 // MARK: - Previews
 
-#Preview("iPhone — Log connexion") {
+#Preview("iPhone — Canard en marche") {
     ZStack {
         Color.bg.ignoresSafeArea()
         VStack(alignment: .leading, spacing: 0) {
@@ -288,12 +273,10 @@ private extension Array {
             }
             .padding(.horizontal).padding(.top, 6).padding(.bottom, 4)
             DuckLoadingView(
-                log: [
-                    "Connexion au portail BAVL...",
-                    "Formulaire détecté — saisie des identifiants...",
-                    "Envoi des identifiants..."
-                ],
-                currentMessage: "Auth réussie — ouverture PressReader..."
+                onComplete: {},
+                authReady: false,
+                log: ["Connexion au portail BAVL...", "Formulaire détecté..."],
+                currentMessage: "Envoi des identifiants..."
             )
         }
     }
