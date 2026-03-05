@@ -15,19 +15,11 @@ struct OnboardingView: View {
             Color.termBg.ignoresSafeArea()
             VStack(alignment: .leading, spacing: 0) {
 
-                // Canard couché + indicateur
-                HStack(alignment: .bottom) {
-                    DuckStaticView()
-                        .padding(.leading, 20)
-                        .padding(.top, 52)
-                    Spacer()
-                    pageIndicator
-                        .padding(.trailing, 20)
-                        .padding(.top, 52)
-                }
-                .padding(.bottom, 20)
-
-                Divider().overlay(Color.termFaint).padding(.horizontal, 16).padding(.bottom, 24)
+                // Canard couché — sans indicateur de points, sans divider
+                DuckStaticView()
+                    .padding(.leading, 20)
+                    .padding(.top, 52)
+                    .padding(.bottom, 24)
 
                 Group {
                     switch page {
@@ -47,28 +39,29 @@ struct OnboardingView: View {
 
                 Spacer()
 
-                VStack(spacing: 8) {
+                // Footer : masqué sur page 2 (clavier présent)
+                if page != 2 {
+                    VStack(spacing: 8) {
+                        TerminalButton(
+                            label: "> CONTINUER_",
+                            enabled: buttonEnabled, action: handleAction
+                        )
+                        .padding(.horizontal, 16)
+                        TerminalSignature()
+                    }
+                    .padding(.bottom, 20)
+                } else {
+                    // Page identifiants : bouton uniquement, pas de signature
                     TerminalButton(
-                        label: page == 2 ? "> COMMENCER_" : "> CONTINUER_",
+                        label: "> COMMENCER_",
                         enabled: buttonEnabled, action: handleAction
                     )
                     .padding(.horizontal, 16)
-                    TerminalSignature()
+                    .padding(.bottom, 20)
                 }
-                .padding(.bottom, 20)
             }
         }
         .preferredColorScheme(.dark)
-    }
-
-    private var pageIndicator: some View {
-        HStack(spacing: 6) {
-            ForEach(0..<3) { i in
-                Text(i == page ? "●" : "○")
-                    .font(.system(size: 8, design: .monospaced))
-                    .foregroundStyle(i == page ? Color.termFg : Color.termFaint)
-            }
-        }
     }
 
     private var pageBienvenue: some View {
