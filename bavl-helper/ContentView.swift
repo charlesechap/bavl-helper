@@ -3,10 +3,10 @@ import Combine
 
 struct ContentView: View {
     @ObservedObject var vm: AppViewModel
-    @State private var showSettings  = false
+    @State private var showSettings   = false
     @State private var selectedPaper: Newspaper? = nil
     @State private var showNewspapers = false
-    @State private var animating      = false   // true pendant le walk du canard
+    @State private var walking        = false   // pilote DuckHeaderView
     @Environment(\.horizontalSizeClass) private var hSizeClass
     private var isIPad: Bool { hSizeClass == .regular }
 
@@ -17,20 +17,45 @@ struct ContentView: View {
 
                 VStack(alignment: .leading, spacing: 0) {
 
-                    // ── Header fixe ─────────────────────────────────────────
+                    // ── Titre ────────────────────────────────────────────────
                     headerBar
                     Divider().overlay(Color.termFaint).padding(.horizontal)
 
-                    // ── Canard couché — toujours présent ────────────────────
-                    duckHeader
+                    // ── Canard unique — couché au repos, marche au chargement ─
+                    HStack(alignment: .bottom) {
+                        DuckHeaderView(
+                            walking:        walking,
+                            authReady:      vm.authReady,
+                            onWalkComplete: {
+                                withAnimation(.easeInOut(duration: 0.3)) {
+                                    walking       = false
+                                    showNewspapers = true
+                                }
+                            }
+                        )
+                        .padding(.leading, 20)
+                        .padding(.vertical, 12)
+
+                        Spacer()
+
+                        Text(stateLabel)
+                            .font(.system(.caption2, design: .monospaced))
+                            .foregroundStyle(Color.termFaint)
+                            .padding(.trailing, 20)
+                            .padding(.bottom, 12)
+                    }
 
                     Divider().overlay(Color.termFaint).padding(.horizontal)
-                        .padding(.top, 4)
+                        .padding(.top, 2)
 
-                    // ── Contenu variable ────────────────────────────────────
-                    if animating {
-                        // Animation en cours → log terminal sous le canard
-                        walkLogView
+                    // ── Contenu variable ─────────────────────────────────────
+                    if walking {
+                        // Log terminal pendant la marche
+                        WalkLogView(
+                            log:            vm.statusLog,
+                            currentMessage: vm.statusMessage
+                        )
+                        .frame(maxWidth: isIPad ? 600 : .infinity)
                     } else if showNewspapers {
                         newspaperListView
                     } else {
@@ -59,24 +84,37 @@ struct ContentView: View {
             }
             .onAppear {
                 showNewspapers = false
-                animating      = false
+                walking        = false
                 vm.authReady   = false
                 vm.checkExistingSession()
             }
             .onChange(of: vm.loginState) { _, state in
-                switch state {
-                case .loading:
-                    animating      = true
+                if case .loading = state {
+                    walking        = true
                     showNewspapers = false
-                case .success, .failure, .idle:
-                    break   // animating reste true jusqu'à ce que le canard finisse
+                }
+                // Pour .failure : arrêter la marche si elle tourne encore
+                if case .failure = state {
+                    walking = false
                 }
             }
         }
         .preferredColorScheme(.dark)
     }
 
-    // MARK: - Header label
+    // MARK: - Indicateur d'état
+
+    private var stateLabel: String {
+        if walking            { return "[ … ]" }
+        if showNewspapers     { return "[ OK ]" }
+        switch vm.loginState {
+        case .failure:        return "[ ERR ]"
+        case .idle:           return "[ — ]"
+        default:              return ""
+        }
+    }
+
+    // MARK: - Header titre
 
     private var headerBar: some View {
         HStack {
@@ -93,52 +131,6 @@ struct ContentView: View {
         .padding(.horizontal).padding(.top, 6).padding(.bottom, 4)
     }
 
-    // MARK: - Canard couché fixe
-
-    private var duckHeader: some View {
-        HStack(alignment: .bottom) {
-            DuckStaticView()
-                .padding(.leading, 20)
-                .padding(.vertical, 12)
-            Spacer()
-            // Indicateur d'état discret
-            Text(stateLabel)
-                .font(.system(.caption2, design: .monospaced))
-                .foregroundStyle(Color.termFaint)
-                .padding(.trailing, 20)
-                .padding(.bottom, 12)
-        }
-    }
-
-    private var stateLabel: String {
-        if animating           { return "[ … ]" }
-        if showNewspapers      { return "[ OK ]" }
-        switch vm.loginState {
-        case .failure:         return "[ ERR ]"
-        case .idle:            return "[ — ]"
-        default:               return ""
-        }
-    }
-
-    // MARK: - Vue pendant l'animation
-
-    // Une seule instance de DuckLoadingView — évite le double démarrage
-    private var walkLogView: some View {
-        DuckLoadingView(
-            onComplete: {
-                withAnimation(.easeInOut(duration: 0.3)) {
-                    animating      = false
-                    if case .success = vm.loginState { showNewspapers = true }
-                }
-            },
-            authReady:      vm.authReady,
-            log:            vm.statusLog,
-            currentMessage: vm.statusMessage
-        )
-        .padding(.top, 8)
-        .frame(maxWidth: isIPad ? 600 : .infinity)
-    }
-
     // MARK: - Vue idle / erreur
 
     private var idleView: some View {
@@ -152,12 +144,10 @@ struct ContentView: View {
                     .padding(.top, 16)
                 TerminalButton(label: "> RÉESSAYER_") { vm.login() }
                     .padding(.horizontal)
-
             case .idle:
                 TerminalButton(label: "> CONNEXION_") { vm.login() }
                     .padding(.horizontal)
                     .padding(.top, 16)
-
             default:
                 EmptyView()
             }
@@ -177,9 +167,7 @@ struct ContentView: View {
                     Spacer()
                 }
                 .padding(.horizontal).padding(.vertical, 6)
-
                 Divider().overlay(Color.termFaint).padding(.horizontal)
-
                 if isIPad { iPadGrid } else { phoneList }
             }
         }
@@ -221,9 +209,7 @@ struct ContentView: View {
 
     @ViewBuilder
     private func newspaperRow(paper: Newspaper, index: Int) -> some View {
-        Button {
-            selectedPaper = paper
-        } label: {
+        Button { selectedPaper = paper } label: {
             HStack(alignment: .top, spacing: 8) {
                 Text(String(format: "%02d.", index + 1))
                     .font(.system(.body, design: .monospaced))
