@@ -38,7 +38,7 @@ private let couch: [[S]] = [
 ]
 
 // marche_A — patte avant "_ ."
-let marcheA: [[S]] = [
+private let marcheA: [[S]] = [
     [S("      "), S("__", dkGreen), S("       ")],
     [S("   __("), S("o", dkWhite), S(")"), S(">", dkYellow), S("     ")],
     [S("   \\ "), S("<_ )", dkGray), S("      ")],
@@ -46,7 +46,7 @@ let marcheA: [[S]] = [
 ]
 
 // marche_B — patte arrière ". _"
-let marcheB: [[S]] = [
+private let marcheB: [[S]] = [
     [S("      "), S("__", dkGreen), S("       ")],
     [S("   __("), S("o", dkWhite), S(")"), S(">", dkYellow), S("     ")],
     [S("   \\ "), S("<_ )", dkGray), S("      ")],
