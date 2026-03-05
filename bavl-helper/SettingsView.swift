@@ -18,22 +18,6 @@ struct SettingsView: View {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 0) {
 
-                        // Canard couché — même position que ContentView
-                        HStack(alignment: .bottom) {
-                            DuckStaticView()
-                                .padding(.leading, 20)
-                                .padding(.vertical, 12)
-                            Spacer()
-                            Text("[ CFG ]")
-                                .font(.system(.caption2, design: .monospaced))
-                                .foregroundStyle(Color.termFaint)
-                                .padding(.trailing, 20)
-                                .padding(.bottom, 12)
-                        }
-
-                        Divider().overlay(Color.termFaint).padding(.horizontal)
-                            .padding(.top, 4).padding(.bottom, 20)
-
                         // Identifiants
                         sectionLabel("// IDENTIFIANTS")
                         VStack(spacing: 12) {
