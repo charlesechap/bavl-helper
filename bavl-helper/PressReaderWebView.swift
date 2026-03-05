@@ -423,11 +423,12 @@ struct PressReaderWebView: UIViewRepresentable {
 // MARK: - PressReaderSheet
 
 struct PressReaderSheet: View {
-    let newspaper: Newspaper
-    let preloadedWebView: WKWebView?   // fourni par ContentView au moment du tap
+    let newspaper:       Newspaper
+    let preloadedWebView: WKWebView?  // fourni par ContentView au moment du tap (peut être nil)
+    @ObservedObject var vm: AppViewModel
     @Environment(\.dismiss) private var dismiss
 
-    @State private var currentURL: URL? = nil
+    @State private var currentURL:  URL? = nil
     @State private var coordinator: PressReaderWebView.Coordinator? = nil
 
     // Mode d'affichage courant détecté depuis l'URL
