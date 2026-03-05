@@ -80,7 +80,7 @@ struct ContentView: View {
                     // Contenu principal
                     if case .loading = vm.loginState {
                         centeredContent {
-                            ASCIISpinnerView(log: vm.statusLog, currentMessage: vm.statusMessage)
+                            DuckLoadingView(log: vm.statusLog, currentMessage: vm.statusMessage)
                         }
                     } else if case .success = vm.loginState {
                         if isIPad {
@@ -287,7 +287,7 @@ private extension Array {
                 Spacer()
             }
             .padding(.horizontal).padding(.top, 6).padding(.bottom, 4)
-            ASCIISpinnerView(
+            DuckLoadingView(
                 log: [
                     "Connexion au portail BAVL...",
                     "Formulaire détecté — saisie des identifiants...",
