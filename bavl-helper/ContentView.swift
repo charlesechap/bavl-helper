@@ -154,21 +154,19 @@ struct ContentView: View {
     // MARK: - Liste journaux (sans canard)
 
     private var newspaperListView: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 0) {
-                HStack {
-                    Text("# [OK] session active")
-                        .font(.system(.caption2, design: .monospaced))
-                        .foregroundStyle(Color.termFaint)
-                    Spacer()
-                    // Bouton settings discret dans la liste aussi
-                }
-                .padding(.horizontal).padding(.vertical, 6)
-                Divider().overlay(Color.termFaint).padding(.horizontal)
-                if isIPad { iPadGrid } else { phoneList }
-                Spacer(minLength: 20)
-                TerminalSignature()
+        VStack(spacing: 0) {
+            HStack {
+                Text("# [OK] session active")
+                    .font(.system(.caption2, design: .monospaced))
+                    .foregroundStyle(Color.termFaint)
+                Spacer()
             }
+            .padding(.horizontal).padding(.vertical, 6)
+            Divider().overlay(Color.termFaint).padding(.horizontal)
+            ScrollView {
+                if isIPad { iPadGrid } else { phoneList }
+            }
+            TerminalSignature()   // collé en bas, hors du ScrollView
         }
     }
 
