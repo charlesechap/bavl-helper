@@ -1,57 +1,34 @@
 import SwiftUI
 
-// MARK: - OnboardingView
-
 struct OnboardingView: View {
     @Binding var isComplete: Bool
     @ObservedObject var vm: AppViewModel
 
     @State private var page: Int = 0
-    @State private var confirmed: Bool = false
-    @State private var cardNumber: String = ""
-    @State private var password: String = ""
-    @State private var shake: Bool = false
-
-    // frame_lev du script Python (canard debout, prêt à partir)
-    private let duckLines = [
-        "    __         ",
-        " __(o)>        ",
-        " \\ <_ )        ",
-        "  _ _          ",
-    ]
+    @State private var confirmed = false
+    @State private var cardNumber = ""
+    @State private var password = ""
+    @State private var shake = false
 
     var body: some View {
         ZStack {
             Color.termBg.ignoresSafeArea()
-
             VStack(alignment: .leading, spacing: 0) {
 
-                // Canard + indicateur
+                // Canard couché + indicateur
                 HStack(alignment: .bottom) {
-                    VStack(alignment: .leading, spacing: 0) {
-                        ForEach(Array(duckLines.enumerated()), id: \.offset) { _, line in
-                            Text(line)
-                                .font(.system(.body, design: .monospaced))
-                                .foregroundStyle(Color.termFg)
-                                .lineLimit(1)
-                                .fixedSize()
-                        }
-                    }
-                    .padding(.leading, 20)
-                    .padding(.top, 52)
-
+                    DuckStaticView()
+                        .padding(.leading, 20)
+                        .padding(.top, 52)
                     Spacer()
-
                     pageIndicator
                         .padding(.trailing, 20)
                         .padding(.top, 52)
                 }
                 .padding(.bottom, 20)
 
-                Divider().overlay(Color.termFaint).padding(.horizontal, 16)
-                    .padding(.bottom, 24)
+                Divider().overlay(Color.termFaint).padding(.horizontal, 16).padding(.bottom, 24)
 
-                // Contenu par page (sans cadre)
                 Group {
                     switch page {
                     case 0: pageBienvenue
@@ -73,8 +50,7 @@ struct OnboardingView: View {
                 VStack(spacing: 8) {
                     TerminalButton(
                         label: page == 2 ? "> COMMENCER_" : "> CONTINUER_",
-                        enabled: buttonEnabled,
-                        action: handleAction
+                        enabled: buttonEnabled, action: handleAction
                     )
                     .padding(.horizontal, 16)
                     TerminalSignature()
@@ -84,8 +60,6 @@ struct OnboardingView: View {
         }
         .preferredColorScheme(.dark)
     }
-
-    // MARK: - Indicateur
 
     private var pageIndicator: some View {
         HStack(spacing: 6) {
@@ -97,21 +71,15 @@ struct OnboardingView: View {
         }
     }
 
-    // MARK: - Pages
-
     private var pageBienvenue: some View {
         VStack(alignment: .leading, spacing: 16) {
             Text("Vos journaux BAVL,\nsans friction.")
                 .font(.system(.title3, design: .monospaced).weight(.bold))
-                .foregroundStyle(Color.termFg)
-                .lineSpacing(3)
-
+                .foregroundStyle(Color.termFg).lineSpacing(3)
             TerminalSeparator()
-
-            Text("Canard automatise l'accès à PressReader via votre carte de bibliothèque BAVL.\nOuvrez vos journaux en un tap.")
+            Text("Canard automatise l'accès à PressReader via votre carte de bibliothèque BAVL. Ouvrez vos journaux en un tap.")
                 .font(.system(.caption, design: .monospaced))
-                .foregroundStyle(Color.termFaint)
-                .lineSpacing(4)
+                .foregroundStyle(Color.termFaint).lineSpacing(4)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -120,11 +88,8 @@ struct OnboardingView: View {
         VStack(alignment: .leading, spacing: 18) {
             Text("Cette app est réservée aux\ntitulaires d'une carte de\nbibliothèque valide donnant\naccès à PressReader.")
                 .font(.system(.body, design: .monospaced))
-                .foregroundStyle(Color.termDim)
-                .lineSpacing(3)
-
+                .foregroundStyle(Color.termDim).lineSpacing(3)
             TerminalSeparator()
-
             Button { confirmed.toggle() } label: {
                 HStack(alignment: .top, spacing: 10) {
                     Text(confirmed ? "[✓]" : "[ ]")
@@ -132,8 +97,7 @@ struct OnboardingView: View {
                         .foregroundStyle(confirmed ? Color.termFg : Color.termDim)
                     Text("Je confirme être titulaire\nd'une carte BAVL active.")
                         .font(.system(.caption, design: .monospaced))
-                        .foregroundStyle(Color.termDim)
-                        .lineSpacing(3)
+                        .foregroundStyle(Color.termDim).lineSpacing(3)
                         .multilineTextAlignment(.leading)
                 }
             }
@@ -146,22 +110,18 @@ struct OnboardingView: View {
 
     private var pageSetup: some View {
         VStack(alignment: .leading, spacing: 14) {
-            TerminalField(label: "N° de carte",  text: $cardNumber, secure: false)
-            TerminalField(label: "Mot de passe", text: $password,   secure: true)
+            TerminalField(label: "N° de carte",  text: $cardNumber)
+            TerminalField(label: "Mot de passe", text: $password, secure: true)
             TerminalSeparator()
             VStack(alignment: .leading, spacing: 3) {
                 Text("  Stockage sécurisé sur votre appareil.")
-                    .font(.system(.caption2, design: .monospaced))
-                    .foregroundStyle(Color.termFaint)
+                    .font(.system(.caption2, design: .monospaced)).foregroundStyle(Color.termFaint)
                 Text("  Aucune donnée transmise à des tiers.")
-                    .font(.system(.caption2, design: .monospaced))
-                    .foregroundStyle(Color.termFaint)
+                    .font(.system(.caption2, design: .monospaced)).foregroundStyle(Color.termFaint)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
-
-    // MARK: - Logique
 
     private var buttonEnabled: Bool {
         switch page {
@@ -174,12 +134,9 @@ struct OnboardingView: View {
     private func handleAction() {
         switch page {
         case 0: withAnimation { page = 1 }
-        case 1:
-            if confirmed { withAnimation { page = 2 } }
-            else { triggerShake() }
+        case 1: confirmed ? withAnimation { page = 2 } : triggerShake()
         case 2:
-            vm.cardNumber = cardNumber
-            vm.password   = password
+            vm.cardNumber = cardNumber; vm.password = password
             UserDefaults.standard.set(true, forKey: "onboardingComplete")
             isComplete = true
         default: break
@@ -192,6 +149,4 @@ struct OnboardingView: View {
     }
 }
 
-#Preview {
-    OnboardingView(isComplete: .constant(false), vm: AppViewModel())
-}
+#Preview { OnboardingView(isComplete: .constant(false), vm: AppViewModel()) }
