@@ -465,7 +465,6 @@ struct PressReaderSheet: View {
                     _PressReaderWebViewBridge(
                         initialURL: url,
                         pressReaderPath: newspaper.pressReaderPath,
-                        preloadedWebView: preloadedWebView,
                         onCoordinatorReady: { coordinator = $0 },
                         onURLChange: { currentURL = $0 }
                     )
@@ -608,36 +607,25 @@ private struct BarBtn: View {
 private struct _PressReaderWebViewBridge: UIViewRepresentable {
     let initialURL: URL
     let pressReaderPath: String
-    var preloadedWebView: WKWebView? = nil
     var onCoordinatorReady: (PressReaderWebView.Coordinator) -> Void
     var onURLChange: ((URL?) -> Void)?
 
     func makeUIView(context: Context) -> WKWebView {
-        // Utiliser le WKWebView préchargé si disponible (évite la spinning wheel)
-        let wv: WKWebView
-        if let preloaded = preloadedWebView {
-            wv = preloaded
-            wv.frame = .zero
-        } else {
-            let config = WKWebViewConfiguration()
-            config.websiteDataStore = .default()
-            let fresh = WKWebView(frame: .zero, configuration: config)
-            fresh.load(URLRequest(url: initialURL))
-            wv = fresh
+        // Toujours un WKWebView frais avec .default() (cookies de session partagés)
+        let config = WKWebViewConfiguration()
+        config.websiteDataStore = .default()
+        let names = ["bearerToken", "pageBlank", "pageTitle"]
+        for name in names {
+            config.userContentController.add(context.coordinator, name: name)
         }
-        // Toujours reconfigurer le coordinator (les handlers sont réenregistrés)
+        let wv = WKWebView(frame: .zero, configuration: config)
         wv.navigationDelegate = context.coordinator
         wv.allowsBackForwardNavigationGestures = true
         context.coordinator.webView = wv
         context.coordinator.pressReaderPath = pressReaderPath
         context.coordinator.onURLChange = onURLChange
-        // Réinjecter les message handlers (remove d'abord pour éviter le doublon)
-        let names = ["bearerToken", "pageBlank", "pageTitle"]
-        for name in names {
-            wv.configuration.userContentController.removeScriptMessageHandler(forName: name)
-            wv.configuration.userContentController.add(context.coordinator, name: name)
-        }
         context.coordinator.startObservingURL(wv)
+        wv.load(URLRequest(url: initialURL))
         DispatchQueue.main.async { self.onCoordinatorReady(context.coordinator) }
         return wv
     }
