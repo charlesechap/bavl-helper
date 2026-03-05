@@ -16,6 +16,7 @@ class AppViewModel: NSObject, ObservableObject {
     @Published var statusMessage: String = ""
     @Published var statusLog: [String] = []
     @Published var newspapers: [Newspaper] = []
+    @Published var authReady: Bool = false
 
     private var webView: WKWebView?
     private let sessionDateKey = "lastLoginDate"
@@ -140,6 +141,7 @@ class AppViewModel: NSObject, ObservableObject {
     func login() {
         guard !cardNumber.isEmpty, !password.isEmpty else {
             loginState = .failure("Veuillez configurer vos identifiants dans les réglages.")
+            authReady = true
             return
         }
 
@@ -174,6 +176,7 @@ class AppViewModel: NSObject, ObservableObject {
             }
         } else {
             loginState = .failure("Échec après \(maxRetries) tentatives : \(reason)")
+            authReady = true
             teardownWebView()
         }
     }
@@ -312,6 +315,7 @@ extension AppViewModel: WKNavigationDelegate {
                     // On est bien sur PressReader → session encore valide
                     appendLog("Session active — accès direct.")
                     loginState = .success
+                    authReady = true
                     teardownWebView()
                 } else {
                     // Redirigé ailleurs → session expirée, on relance le login
@@ -338,6 +342,7 @@ extension AppViewModel: WKNavigationDelegate {
             } else if url.contains("pressreader.com") {
                 appendLog("Connecté ! Chargement des journaux...")
                 loginState = .success
+                authReady = true
                 markSessionStart()
                 teardownWebView()
                 fetchLastEditionDates()
@@ -371,6 +376,7 @@ extension AppViewModel: WKNavigationDelegate {
         }
     }
 }
+
 
 
 
