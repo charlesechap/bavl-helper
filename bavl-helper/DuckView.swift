@@ -4,7 +4,7 @@ import Combine
 private let dkGreen   = Color(red: 0.20, green: 0.90, blue: 0.20)
 private let dkWhite   = Color(red: 1.00, green: 1.00, blue: 1.00)
 private let dkYellow  = Color(red: 1.00, green: 0.90, blue: 0.10)
-private let dkGray    = Color(red: 0.50, green: 0.50, blue: 0.50)
+private let dkGray    = Color(red: 0.55, green: 0.55, blue: 0.55)  // tête + corps
 
 private struct S {
     let t: String; let c: Color
@@ -23,24 +23,54 @@ private func duckLine(_ segs: [S]) -> some View {
     .fixedSize()
 }
 
-private let couch: [[S]] = [
+// ── Frames couché ──────────────────────────────────────────────────────────
+// couchOpen : oeil ouvert  "o"
+// couchBlink : oeil fermé  "-"
+//
+//    __
+// __( o)>
+//
+// Tête = dkGray, oeil = dkWhite (open) ou dkGray (blink), bec = dkYellow
+
+private let couchOpen: [[S]] = [
     [S("               ")],
-    [S("   "), S("__", dkGreen), S("        ")],
-    [S("__( "), S("o", dkWhite), S(")"), S(">", dkYellow), S("      ")],
+    [S("   "), S("__", dkGray)],
+    [S("__("), S("o", dkWhite), S(")", dkGray), S(">", dkYellow)],
     [S("               ")],
 ]
 
+private let couchBlink: [[S]] = [
+    [S("               ")],
+    [S("   "), S("__", dkGray)],
+    [S("__("), S("-", dkGray), S(")", dkGray), S(">", dkYellow)],
+    [S("               ")],
+]
+
+// Alias pour DuckStaticView et reset
+private let couch = couchOpen
+
+// ── Frames marche ──────────────────────────────────────────────────────────
+//       __
+//    __(o)>
+//    \ <_ )
+//     _ .      ← patte A
+//
+//       __
+//    __(o)>
+//    \ <_ )
+//     . _      ← patte B
+
 private let marcheA: [[S]] = [
-    [S("      "), S("__", dkGreen), S("       ")],
-    [S("   __("), S("o", dkWhite), S(")"), S(">", dkYellow), S("     ")],
-    [S("   "), S("\\", Color(white: 0.82)), S(" "), S("<_ )", dkGray)],
+    [S("      "), S("__", dkGray)],
+    [S("   __("), S("o", dkWhite), S(")", dkGray), S(">", dkYellow)],
+    [S("   \\", dkGray), S(" <_ )", dkGray)],
     [S("    "), S("_ .", dkYellow)],
 ]
 
 private let marcheB: [[S]] = [
-    [S("      "), S("__", dkGreen), S("       ")],
-    [S("   __("), S("o", dkWhite), S(")"), S(">", dkYellow), S("     ")],
-    [S("   "), S("\\", Color(white: 0.82)), S(" "), S("<_ )", dkGray)],
+    [S("      "), S("__", dkGray)],
+    [S("   __("), S("o", dkWhite), S(")", dkGray), S(">", dkYellow)],
+    [S("   \\", dkGray), S(" <_ )", dkGray)],
     [S("    "), S(". _", dkYellow)],
 ]
 
@@ -51,10 +81,11 @@ struct DuckHeaderView: View {
     let authReady:      Bool
     let onWalkComplete: () -> Void
 
-    @State private var frame:     [[S]]   = couch
+    @State private var frame:     [[S]]   = couchOpen
     @State private var positionX: CGFloat = 0
     @State private var walkDone           = false
     @State private var started            = false
+    @State private var blinkTimer: Timer? = nil
 
     var body: some View {
         GeometryReader { geo in
@@ -66,16 +97,16 @@ struct DuckHeaderView: View {
                 }
                 .offset(x: positionX)
             }
-            // Pas de .clipped() ici — on laisse le canard sortir naturellement
-            // La vue parente (ZStack pleine largeur) gère le clipping
             .onChange(of: walking) { _, isWalking in
                 if isWalking {
+                    stopBlink()
                     startWalk(screenWidth: geo.size.width)
                 } else {
                     started   = false
                     walkDone  = false
                     positionX = 0
-                    frame     = couch
+                    frame     = couchOpen
+                    startBlink()
                 }
             }
             .onChange(of: authReady) { _, ready in
@@ -83,28 +114,44 @@ struct DuckHeaderView: View {
             }
         }
         .frame(height: 60)
-        .clipped()  // clipping sur le frame final pleine largeur
+        .clipped()
+        .onAppear { startBlink() }
+        .onDisappear { stopBlink() }
     }
 
-    // Séquence :
-    // 1. Pause couché à x=0 pendant 0.6s
-    // 2. Marche de x=0 jusqu'à x=screenWidth+120 (sort complètement à droite)
+    // ── Clignement toutes les 2s ─────────────────────────────────────────
+    private func startBlink() {
+        stopBlink()
+        blinkTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { _ in
+            guard !started else { return }   // pas de clignotement pendant la marche
+            frame = couchBlink
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
+                frame = couchOpen
+            }
+        }
+    }
+
+    private func stopBlink() {
+        blinkTimer?.invalidate()
+        blinkTimer = nil
+    }
+
+    // ── Marche ───────────────────────────────────────────────────────────
+    // Séquence : pause couché 0.6s → marche de x=0 jusqu'à x=screenWidth+150
     private func startWalk(screenWidth: CGFloat) {
         guard !started else { return }
         started   = true
         walkDone  = false
-        frame     = couch
-        positionX = 0  // démarre couché à sa position normale
+        frame     = couchOpen
+        positionX = 0
 
-        // Phase 1 : pause couché 0.6s
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
-            // Phase 2 : marche vers la droite
-            let duckW: CGFloat  = 150          // largeur estimée du canard ASCII
-            let endX            = screenWidth + duckW   // sort complètement hors écran
-            let totalDist       = endX - 0     // de 0 → endX
+            let duckW: CGFloat    = 150
+            let endX              = screenWidth + duckW
+            let totalDist         = endX          // de 0 → endX
             let cycleTime: Double = 0.18
-            let nCycles         = 3.0 / cycleTime       // 16.67 cycles en 3s
-            let step            = totalDist / CGFloat(nCycles)
+            let nCycles           = 3.0 / cycleTime
+            let step              = totalDist / CGFloat(nCycles)
 
             func tick() {
                 frame = marcheA
@@ -174,7 +221,7 @@ typealias DuckStaticView = _DuckStaticView
 struct _DuckStaticView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            ForEach(Array(couch.enumerated()), id: \.offset) { _, segs in
+            ForEach(Array(couchOpen.enumerated()), id: \.offset) { _, segs in
                 duckLine(segs)
             }
         }
