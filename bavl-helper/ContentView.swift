@@ -76,7 +76,7 @@ struct ContentView: View {
             }
             .sheet(isPresented: $showSettings) { SettingsView(vm: vm) }
             .fullScreenCover(item: $selectedPaper) { paper in
-                PressReaderSheet(newspaper: paper, preloadedWebView: selectedPreload)
+                PressReaderSheet(newspaper: paper, preloadedWebView: selectedPreload, vm: vm)
             }
             .onAppear {
                 showNewspapers = false
