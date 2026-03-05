@@ -43,7 +43,7 @@ struct OnboardingView: View {
                 if page != 2 {
                     VStack(spacing: 8) {
                         TerminalButton(
-                            label: "> CONTINUER_",
+                            label: page == 0 ? "> C'EST PARTI_" : "> CONTINUER_",
                             enabled: buttonEnabled, action: handleAction
                         )
                         .padding(.horizontal, 16)
@@ -65,21 +65,16 @@ struct OnboardingView: View {
     }
 
     private var pageBienvenue: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text("Vos journaux BAVL,\nsans friction.")
-                .font(.system(.title3, design: .monospaced).weight(.bold))
-                .foregroundStyle(Color.termFg).lineSpacing(3)
-            TerminalSeparator()
-            Text("Canard automatise l'accès à PressReader via votre carte de bibliothèque BAVL. Ouvrez vos journaux en un tap.")
-                .font(.system(.caption, design: .monospaced))
-                .foregroundStyle(Color.termFaint).lineSpacing(4)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        Text("Canard automatise l'accès à PressReader via votre carte des Bibliothèques de la Ville de Lausanne.")
+            .font(.system(.title3, design: .monospaced).weight(.bold))
+            .foregroundStyle(Color.termFg)
+            .lineSpacing(5)
+            .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var pageCondition: some View {
         VStack(alignment: .leading, spacing: 18) {
-            Text("Cette app est réservée aux\ntitulaires d'une carte de\nbibliothèque valide donnant\naccès à PressReader.")
+            Text("Cette app est réservée aux titulaires d'une carte des Bibliothèques de la Ville de Lausanne valide donnant accès à PressReader.")
                 .font(.system(.body, design: .monospaced))
                 .foregroundStyle(Color.termDim).lineSpacing(3)
             TerminalSeparator()
@@ -88,7 +83,7 @@ struct OnboardingView: View {
                     Text(confirmed ? "[✓]" : "[ ]")
                         .font(.system(.body, design: .monospaced))
                         .foregroundStyle(confirmed ? Color.termFg : Color.termDim)
-                    Text("Je confirme être titulaire\nd'une carte BAVL active.")
+                    Text("Je confirme être titulaire d'une carte valide.")
                         .font(.system(.caption, design: .monospaced))
                         .foregroundStyle(Color.termDim).lineSpacing(3)
                         .multilineTextAlignment(.leading)
