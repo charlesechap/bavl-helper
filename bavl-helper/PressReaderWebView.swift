@@ -424,20 +424,11 @@ struct PressReaderWebView: UIViewRepresentable {
 
 struct PressReaderSheet: View {
     let newspaper: Newspaper
-    @ObservedObject var vm: AppViewModel
+    let preloadedWebView: WKWebView?   // fourni par ContentView au moment du tap
     @Environment(\.dismiss) private var dismiss
 
     @State private var currentURL: URL? = nil
     @State private var coordinator: PressReaderWebView.Coordinator? = nil
-    // Consommé à l'init (avant tout rendu) — garanti disponible dans makeUIView
-    @State private var preloaded: WKWebView?
-
-    init(newspaper: Newspaper, vm: AppViewModel) {
-        self.newspaper = newspaper
-        self._vm = ObservedObject(wrappedValue: vm)
-        // consumePreloaded ici : appelé une seule fois, synchrone, avant tout body
-        self._preloaded = State(initialValue: vm.consumePreloaded(for: newspaper.pressReaderPath))
-    }
 
     // Mode d'affichage courant détecté depuis l'URL
     private var viewMode: ViewMode {
@@ -473,7 +464,7 @@ struct PressReaderSheet: View {
                     _PressReaderWebViewBridge(
                         initialURL: url,
                         pressReaderPath: newspaper.pressReaderPath,
-                        preloadedWebView: preloaded,
+                        preloadedWebView: preloadedWebView,
                         onCoordinatorReady: { coordinator = $0 },
                         onURLChange: { currentURL = $0 }
                     )
