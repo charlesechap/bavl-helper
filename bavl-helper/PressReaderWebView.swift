@@ -122,6 +122,7 @@ struct PressReaderWebView: UIViewRepresentable {
         var pressReaderPath: String = ""
         var onTitleChange: ((String) -> Void)?
         var onURLChange: ((URL?) -> Void)?
+        var onEditionsReady: (([String]) -> Void)?
         private var urlObservation: NSKeyValueObservation?
 
         func startObservingURL(_ wv: WKWebView) {
@@ -204,6 +205,7 @@ struct PressReaderWebView: UIViewRepresentable {
                    let issueId = first["Issue"] as? String, !issueId.isEmpty {
                     print("BAVL issueId trouvé:", issueId)
                     self.currentIssueId = issueId
+                    self.extractSuffixAndBuildEditions(from: issueId)
                     self.loadTOC(issueId: issueId)
                 }
                 if let date = self.extractLatestDate(from: raw) {
@@ -241,6 +243,45 @@ struct PressReaderWebView: UIViewRepresentable {
             DispatchQueue.main.async { self.webView?.load(URLRequest(url: url)) }
         }
 
+        // MARK: - Éditions (liste pour le picker)
+
+        private var issueSuffix: String = ""  // ex: "00000051001001"
+
+        private func extractSuffixAndBuildEditions(from issueId: String) {
+            // issueId = "f165" (4) + YYYYMMDD (8) + suffix
+            guard issueId.count > 12 else { return }
+            let afterBase = String(issueId.dropFirst(4))   // retire "f165"
+            let suffix = String(afterBase.dropFirst(8))     // retire YYYYMMDD
+            guard !suffix.isEmpty, suffix != issueSuffix else { return }
+            issueSuffix = suffix
+            buildEditionsList()
+        }
+
+        private func buildEditionsList() {
+            guard !issueSuffix.isEmpty else { return }
+            var cal = Calendar(identifier: .gregorian)
+            cal.timeZone = TimeZone(identifier: "Europe/Zurich")!
+            let today = Date()
+            var dates: [String] = []
+            let fmt = DateFormatter()
+            fmt.dateFormat = "yyyyMMdd"
+            fmt.timeZone = TimeZone(identifier: "Europe/Zurich")
+            for i in 0..<90 {
+                guard let d = cal.date(byAdding: .day, value: -i, to: today) else { continue }
+                let weekday = cal.component(.weekday, from: d)
+                if weekday == 1 { continue }  // 1 = dimanche
+                dates.append(fmt.string(from: d))
+            }
+            DispatchQueue.main.async { self.onEditionsReady?(dates) }
+        }
+
+        func navigateToEdition(date: String) {
+            guard let url = URL(string: "https://www.pressreader.com/\(pressReaderPath)/\(date)/textview")
+            else { return }
+            print("BAVL navigateToEdition ->", url.absoluteString)
+            DispatchQueue.main.async { self.webView?.load(URLRequest(url: url)) }
+        }
+
         // MARK: - TOC Navigation
 
         private var tocArticleIds: [Int64] = []
@@ -269,6 +310,7 @@ struct PressReaderWebView: UIViewRepresentable {
                 guard let self = self,
                       let issueId = result as? String, !issueId.isEmpty
                 else { return }
+                self.extractSuffixAndBuildEditions(from: issueId)
                 if issueId == self.currentIssueId { return }  // TOC déjà chargé
                 self.currentIssueId = issueId
                 self.loadTOC(issueId: issueId)
@@ -430,6 +472,8 @@ struct PressReaderSheet: View {
 
     @State private var currentURL:  URL? = nil
     @State private var coordinator: PressReaderWebView.Coordinator? = nil
+    @State private var availableEditions: [String] = []  // dates YYYYMMDD, desc
+    @State private var showEditionPicker: Bool = false
 
     // Mode d'affichage courant détecté depuis l'URL
     private var viewMode: ViewMode {
@@ -454,6 +498,24 @@ struct PressReaderSheet: View {
         currentURL?.absoluteString.contains("/archive") == true
     }
 
+    /// Date courante extraite de l'URL (ex: "20260306")
+    private var currentDateFromURL: String {
+        let s = currentURL?.absoluteString ?? ""
+        guard let range = s.range(of: #"[0-9]{8}"#, options: .regularExpression) else { return "" }
+        return String(s[range])
+    }
+
+    /// Label affiché dans la barre : "Le Temps — Ven 6.3"
+    private var editionLabel: String {
+        let name = newspaper.name
+        let dateStr = currentDateFromURL
+        guard dateStr.count == 8,
+              let date = editionDateFormatter.date(from: dateStr)
+        else { return name }
+        let label = editionDisplayFormatter.string(from: date)
+        return "\(name)  \(label)"
+    }
+
     var body: some View {
         GeometryReader { geo in
             let safeTop = geo.safeAreaInsets.top
@@ -465,7 +527,12 @@ struct PressReaderSheet: View {
                     _PressReaderWebViewBridge(
                         initialURL: url,
                         pressReaderPath: newspaper.pressReaderPath,
-                        onCoordinatorReady: { coordinator = $0 },
+                        onCoordinatorReady: { coord in
+                            coordinator = coord
+                            coord.onEditionsReady = { dates in
+                                availableEditions = dates
+                            }
+                        },
                         onURLChange: { currentURL = $0 }
                     )
                     .ignoresSafeArea()
@@ -481,6 +548,8 @@ struct PressReaderSheet: View {
                     isOnArticle: isOnArticle,
                     viewMode: viewMode,
                     currentURL: currentURL,
+                    editionLabel: editionLabel,
+                    showEditionPicker: $showEditionPicker,
                     onDismiss: { dismiss() },
                     onTxt: { coordinator?.goToTextView() },
                     onPdf: { coordinator?.goToPDF() },
@@ -502,10 +571,114 @@ struct PressReaderSheet: View {
                     },
                     safeAreaTop: safeTop
                 )
+
+                // Dropdown éditions (overlay, s'affiche au-dessus de tout)
+                if showEditionPicker && !availableEditions.isEmpty {
+                    EditionPickerOverlay(
+                        editions: availableEditions,
+                        currentDate: currentDateFromURL,
+                        safeTop: safeTop
+                    ) { selectedDate in
+                        showEditionPicker = false
+                        coordinator?.navigateToEdition(date: selectedDate)
+                    } onDismiss: {
+                        showEditionPicker = false
+                    }
+                }
             }
             .ignoresSafeArea(edges: .top)
         }
         .preferredColorScheme(.dark)
+    }
+}
+
+// MARK: - Formatters (stateless, réutilisables)
+
+private let editionDateFormatter: DateFormatter = {
+    let f = DateFormatter()
+    f.dateFormat = "yyyyMMdd"
+    f.locale = Locale(identifier: "fr_CH")
+    f.timeZone = TimeZone(identifier: "Europe/Zurich")
+    return f
+}()
+
+private let editionDisplayFormatter: DateFormatter = {
+    let f = DateFormatter()
+    f.dateFormat = "EEE d.M"   // "Ven 6.3"
+    f.locale = Locale(identifier: "fr_CH")
+    f.timeZone = TimeZone(identifier: "Europe/Zurich")
+    return f
+}()
+
+// MARK: - Picker éditions
+
+private struct EditionPickerOverlay: View {
+    let editions: [String]       // YYYYMMDD desc
+    let currentDate: String
+    let safeTop: CGFloat
+    let onSelect: (String) -> Void
+    let onDismiss: () -> Void
+
+    private let activeColor  = Color(white: 0.82)
+    private let dimColor     = Color(white: 0.45)
+    private let currentColor = Color(white: 0.95)
+
+    var body: some View {
+        ZStack(alignment: .topLeading) {
+            // Fond semi-transparent pour fermer en tapant dehors
+            Color.black.opacity(0.45)
+                .ignoresSafeArea()
+                .onTapGesture { onDismiss() }
+
+            // Liste des éditions
+            ScrollView {
+                VStack(alignment: .leading, spacing: 0) {
+                    ForEach(editions, id: \.self) { dateStr in
+                        let isCurrent = dateStr == currentDate
+                        Button {
+                            onSelect(dateStr)
+                        } label: {
+                            HStack(spacing: 8) {
+                                if isCurrent {
+                                    Text("›")
+                                        .font(.system(.body, design: .monospaced))
+                                        .foregroundStyle(currentColor)
+                                        .frame(width: 14)
+                                } else {
+                                    Text(" ")
+                                        .font(.system(.body, design: .monospaced))
+                                        .frame(width: 14)
+                                }
+                                Text(formatEditionDate(dateStr))
+                                    .font(.system(.body, design: .monospaced))
+                                    .foregroundStyle(isCurrent ? currentColor : activeColor)
+                            }
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 10)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(isCurrent ? Color(white: 0.18) : Color.clear)
+                        }
+                        .buttonStyle(.plain)
+
+                        Divider()
+                            .background(Color(white: 0.20))
+                    }
+                }
+            }
+            .frame(maxWidth: 240)
+            .background(Color(red: 0.10, green: 0.10, blue: 0.10))
+            .overlay(
+                Rectangle()
+                    .stroke(Color(white: 0.22), lineWidth: 0.5)
+            )
+            .padding(.top, safeTop + 44)
+            .padding(.leading, 0)
+        }
+    }
+
+    private func formatEditionDate(_ dateStr: String) -> String {
+        guard let date = editionDateFormatter.date(from: dateStr) else { return dateStr }
+        return editionDisplayFormatter.string(from: date)
     }
 }
 
@@ -517,6 +690,8 @@ private struct TerminalBar: View {
     let isOnArticle: Bool
     let viewMode: ViewMode
     let currentURL: URL?
+    let editionLabel: String
+    @Binding var showEditionPicker: Bool
     let onDismiss: () -> Void
     let onTxt: () -> Void
     let onPdf: () -> Void
@@ -529,33 +704,45 @@ private struct TerminalBar: View {
     var safeAreaTop: CGFloat = 0
 
     // Police terminal
-    private let dimColor = Color(white: 0.35)
-    private let activeColor = Color(white: 0.82)
+    private let dimColor     = Color(white: 0.35)
+    private let activeColor  = Color(white: 0.82)
     private let inactiveColor = Color(white: 0.45)
 
     var body: some View {
         HStack(spacing: 0) {
-            // ‹ à gauche : dismiss depuis archive/journal, retour journal depuis article
+            // ← à gauche : dismiss depuis archive/journal, retour journal depuis article
             let backAction: () -> Void = isOnArticle ? onJournal : onDismiss
             BarBtn("←", color: activeColor, action: backAction)
                 .padding(.leading, 16)
 
             Spacer()
 
-            // Boutons contextuels à droite
+            // Boutons contextuels
             if isOnArchive {
+                // Archive : pas de sélecteur d'édition, on garde txt/pdf
                 BarBtn("txt", color: activeColor, action: onTxt)
                 separator
                 BarBtn("pdf", color: activeColor, action: onPdf)
             }
 
             if isOnJournal {
-                BarBtn("txt", color: viewMode == .text ? activeColor : inactiveColor, action: onTxt)
-                separator
-                BarBtn("pdf", color: viewMode == .layout ? activeColor : inactiveColor, action: onPdf)
+                // Journal : sélecteur d'édition centré
+                Button {
+                    showEditionPicker.toggle()
+                } label: {
+                    Text(editionLabel)
+                        .font(.system(.body, design: .monospaced))
+                        .foregroundStyle(activeColor)
+                        .frame(height: 44)
+                        .padding(.horizontal, 10)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
             }
 
             if isOnArticle {
+                BarBtn("↩", color: activeColor, action: onJournal)
+                separator
                 BarBtn("↑", color: activeColor, action: onShare)
             }
         }
