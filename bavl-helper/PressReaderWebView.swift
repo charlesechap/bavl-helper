@@ -89,23 +89,21 @@ struct PressReaderWebView: UIViewRepresentable {
 
         var path = window.location.pathname;
 
-        // 3. Sur /archive : bearer token + publication CID
-        if (path.indexOf('/archive') !== -1) {
+        // 3. Toutes les pages : bearer token + publication CID
+        // (Swift garde calendarLoaded pour n'appeler l'API qu'une seule fois)
+        function sendAuthInfo() {
             var token = (window.preset && window.preset.bearerToken) ? window.preset.bearerToken : null;
             var cid   = (window.preset && window.preset.cid)         ? window.preset.cid         : null;
             if (token && cid) {
                 window.webkit.messageHandlers.authInfo.postMessage(
                     JSON.stringify({token: token, cid: cid})
                 );
-            } else {
-                setTimeout(function() {
-                    var t2 = (window.preset && window.preset.bearerToken) ? window.preset.bearerToken : null;
-                    var c2 = (window.preset && window.preset.cid)         ? window.preset.cid         : null;
-                    window.webkit.messageHandlers.authInfo.postMessage(
-                        JSON.stringify({token: t2 || '', cid: c2 || ''})
-                    );
-                }, 500);
+                return true;
             }
+            return false;
+        }
+        if (!sendAuthInfo()) {
+            setTimeout(function() { sendAuthInfo(); }, 800);
         }
 
         // 4. Sur /textview : titre
@@ -765,3 +763,4 @@ private extension WKWebView {
     func goBackward() { goBack() }
     func goForward_() { goForward() }
 }
+
