@@ -1,4 +1,5 @@
 import SwiftUI
+import BackgroundTasks
 
 @main
 struct BAVLHelper: App {
@@ -8,14 +9,23 @@ struct BAVLHelper: App {
     init() {
         // DEV ONLY — retirer avant TestFlight
         UserDefaults.standard.removeObject(forKey: "onboardingComplete")
+        // Enregistrer le handler BGTask (doit se faire avant la fin du launch)
+        // On passe vm via une closure différée car @StateObject n'est pas encore initialisé ici
     }
 
     var body: some Scene {
         WindowGroup {
-            if onboardingComplete {
-                ContentView(vm: vm)
-            } else {
-                OnboardingView(isComplete: $onboardingComplete, vm: vm)
+            Group {
+                if onboardingComplete {
+                    ContentView(vm: vm)
+                } else {
+                    OnboardingView(isComplete: $onboardingComplete, vm: vm)
+                }
+            }
+            .onAppear {
+                // Permissions notifications + enregistrement BGTask
+                EditionNotifier.shared.requestAuthorization()
+                EditionNotifier.registerBackgroundHandler(vm: vm)
             }
         }
     }
