@@ -1,7 +1,8 @@
 import SwiftUI
 import WebKit
 
-// MARK: - Palette (miroir ContentView)
+// MARK: - Palette
+
 private extension Color {
     static let bg      = Color(red: 0.13, green: 0.13, blue: 0.13)
     static let fg      = Color(red: 0.80, green: 0.80, blue: 0.80)
@@ -27,24 +28,17 @@ private let editionDisplayFormatter: DateFormatter = {
     return f
 }()
 
-/// Génère les N derniers jours (lun-sam) depuis today, sans appel réseau.
-/// Les jours fériés et grèves sont gérés nativement par PressReader (redirect).
-private func buildLocalEditions(count: Int = 90) -> [String] {
-    var cal = Calendar(identifier: .gregorian)
-    cal.timeZone = TimeZone(identifier: "Europe/Zurich")!
-    let today = Date()
-    var dates: [String] = []
-    let fmt = DateFormatter()
-    fmt.dateFormat = "yyyyMMdd"
-    fmt.timeZone = TimeZone(identifier: "Europe/Zurich")
-    for i in 0..<(count * 2) {  // marge pour les dimanches
-        guard let d = cal.date(byAdding: .day, value: -i, to: today) else { continue }
-        let weekday = cal.component(.weekday, from: d)
-        if weekday == 1 { continue }  // 1 = dimanche
-        dates.append(fmt.string(from: d))
-        if dates.count >= count { break }
+// MARK: - Modèle édition
+
+struct PressReaderEdition: Identifiable, Hashable {
+    let date: String      // "yyyyMMdd"
+    let issueId: Int      // Id numérique (pour futures fonctionnalités)
+    var id: String { date }
+
+    var displayLabel: String {
+        guard let d = editionDateFormatter.date(from: date) else { return date }
+        return editionDisplayFormatter.string(from: d)
     }
-    return dates
 }
 
 // MARK: - PressReaderWebView
@@ -95,15 +89,21 @@ struct PressReaderWebView: UIViewRepresentable {
 
         var path = window.location.pathname;
 
-        // 3. Sur /archive : bearer token
+        // 3. Sur /archive : bearer token + publication CID
         if (path.indexOf('/archive') !== -1) {
             var token = (window.preset && window.preset.bearerToken) ? window.preset.bearerToken : null;
-            if (token) {
-                window.webkit.messageHandlers.bearerToken.postMessage(token);
+            var cid   = (window.preset && window.preset.cid)         ? window.preset.cid         : null;
+            if (token && cid) {
+                window.webkit.messageHandlers.authInfo.postMessage(
+                    JSON.stringify({token: token, cid: cid})
+                );
             } else {
                 setTimeout(function() {
                     var t2 = (window.preset && window.preset.bearerToken) ? window.preset.bearerToken : null;
-                    window.webkit.messageHandlers.bearerToken.postMessage(t2 || '');
+                    var c2 = (window.preset && window.preset.cid)         ? window.preset.cid         : null;
+                    window.webkit.messageHandlers.authInfo.postMessage(
+                        JSON.stringify({token: t2 || '', cid: c2 || ''})
+                    );
                 }, 500);
             }
         }
@@ -127,9 +127,9 @@ struct PressReaderWebView: UIViewRepresentable {
     func makeUIView(context: Context) -> WKWebView {
         let config = WKWebViewConfiguration()
         config.websiteDataStore = .default()
-        config.userContentController.add(context.coordinator, name: "bearerToken")
-        config.userContentController.add(context.coordinator, name: "pageBlank")
-        config.userContentController.add(context.coordinator, name: "pageTitle")
+        for name in ["authInfo", "bearerToken", "pageBlank", "pageTitle"] {
+            config.userContentController.add(context.coordinator, name: name)
+        }
         let wv = WKWebView(frame: .zero, configuration: config)
         wv.navigationDelegate = context.coordinator
         wv.allowsBackForwardNavigationGestures = true
@@ -149,7 +149,10 @@ struct PressReaderWebView: UIViewRepresentable {
         var pressReaderPath: String = ""
         var onTitleChange: ((String) -> Void)?
         var onURLChange: ((URL?) -> Void)?
+        /// Callback déclenché quand la liste des éditions est disponible
+        var onEditionsLoaded: (([PressReaderEdition]) -> Void)?
         private var urlObservation: NSKeyValueObservation?
+        private var calendarLoaded = false
 
         func startObservingURL(_ wv: WKWebView) {
             urlObservation = wv.observe(\.url, options: [.new]) { [weak self] webView, _ in
@@ -184,28 +187,94 @@ struct PressReaderWebView: UIViewRepresentable {
         func userContentController(_ userContentController: WKUserContentController,
                                    didReceive message: WKScriptMessage) {
             switch message.name {
+
+            case "authInfo":
+                guard let jsonStr = message.body as? String,
+                      let data = jsonStr.data(using: .utf8),
+                      let dict = try? JSONSerialization.jsonObject(with: data) as? [String: String]
+                else { loadFallbackDate(); return }
+                let token = dict["token"] ?? ""
+                let cid   = dict["cid"]   ?? ""
+                print("BAVL authInfo: token.count=\(token.count) cid=\(cid)")
+                if token.isEmpty { loadFallbackDate(); return }
+                // Charger le calendrier des éditions disponibles (une seule fois)
+                if !calendarLoaded {
+                    calendarLoaded = true
+                    fetchCalendar(bearerToken: token, cid: cid)
+                }
+                fetchLastEditionViaAPI(bearerToken: token, cid: cid)
+
+            // Rétro-compatibilité si bearerToken est encore émis
             case "bearerToken":
                 let token = message.body as? String ?? ""
-                print("BAVL bearerToken received, length:", token.count)
                 if token.isEmpty { loadFallbackDate() }
-                else { fetchLastEditionViaAPI(bearerToken: token) }
+                // Note: sans cid, on ne peut pas appeler le calendar — attend authInfo
+
             case "pageTitle":
                 let title = message.body as? String ?? ""
-                print("BAVL pageTitle:", title)
                 DispatchQueue.main.async { self.onTitleChange?(title) }
+
             default:
                 break
             }
         }
 
-        // MARK: - API
+        // MARK: - Calendar API (liste des éditions disponibles)
 
-        private func fetchLastEditionViaAPI(bearerToken: String) {
-            let cid = pressReaderPath
+        /// Charge le calendrier complet depuis l'API PressReader
+        /// GET https://ingress.pressreader.com/services/calendar/get?cid={cid}
+        /// Réponse: {"Years": {"2026": {"3": {"6": {"P": true, "Id": 11530628}}}}}
+        private func fetchCalendar(bearerToken: String, cid: String) {
+            guard let encoded = cid.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
+                  let url = URL(string: "https://ingress.pressreader.com/services/calendar/get?cid=\(encoded)")
+            else { return }
+            var request = URLRequest(url: url, timeoutInterval: 10)
+            request.setValue("Bearer \(bearerToken)", forHTTPHeaderField: "Authorization")
+            request.setValue("application/json", forHTTPHeaderField: "Accept")
+            print("BAVL calendar fetch ->", url.absoluteString)
+
+            URLSession.shared.dataTask(with: request) { [weak self] data, _, error in
+                guard let self = self, let data = data, error == nil else {
+                    print("BAVL calendar error:", error?.localizedDescription ?? "nil data")
+                    return
+                }
+                let raw = String(data: data, encoding: .utf8) ?? ""
+                print("BAVL calendar response (200):", String(raw.prefix(200)))
+                guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                      let years = root["Years"] as? [String: Any]
+                else { return }
+
+                var editions: [PressReaderEdition] = []
+                for (yearStr, monthsAny) in years {
+                    guard let months = monthsAny as? [String: Any] else { continue }
+                    for (monthStr, daysAny) in months {
+                        guard let days = daysAny as? [String: Any] else { continue }
+                        for (dayStr, infoAny) in days {
+                            guard let info = infoAny as? [String: Any],
+                                  let available = info["P"] as? Bool, available,
+                                  let year  = Int(yearStr),
+                                  let month = Int(monthStr),
+                                  let day   = Int(dayStr)
+                            else { continue }
+                            let issueId = (info["Id"] as? Int) ?? 0
+                            let dateStr = String(format: "%04d%02d%02d", year, month, day)
+                            editions.append(PressReaderEdition(date: dateStr, issueId: issueId))
+                        }
+                    }
+                }
+                // Trier par date décroissante
+                let sorted = editions.sorted { $0.date > $1.date }
+                print("BAVL calendar: \(sorted.count) éditions disponibles")
+                DispatchQueue.main.async { self.onEditionsLoaded?(sorted) }
+            }.resume()
+        }
+
+        // MARK: - API (dernière édition)
+
+        private func fetchLastEditionViaAPI(bearerToken: String, cid: String) {
             guard let encoded = cid.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
                   let url = URL(string: "https://ingress.pressreader.com/services/catalog/issues?cid=\(encoded)&count=3")
             else { loadFallbackDate(); return }
-
             var request = URLRequest(url: url, timeoutInterval: 10)
             request.setValue("Bearer \(bearerToken)", forHTTPHeaderField: "Authorization")
             request.setValue("application/json", forHTTPHeaderField: "Accept")
@@ -216,7 +285,7 @@ struct PressReaderWebView: UIViewRepresentable {
                 let raw = String(data: data, encoding: .utf8) ?? ""
                 if let parsed = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                    let issues = parsed["Issues"] as? [[String: Any]],
-                   let first = issues.first,
+                   let first  = issues.first,
                    let issueId = first["Issue"] as? String, !issueId.isEmpty {
                     self.currentIssueId = issueId
                     self.loadTOC(issueId: issueId)
@@ -233,9 +302,8 @@ struct PressReaderWebView: UIViewRepresentable {
             let pattern = "[^0-9]([0-9]{8})[^0-9]"
             guard let regex = try? NSRegularExpression(pattern: pattern) else { return nil }
             let padded = " \(json) "
-            let range = NSRange(padded.startIndex..., in: padded)
             var dates: [String] = []
-            regex.enumerateMatches(in: padded, range: range) { match, _, _ in
+            regex.enumerateMatches(in: padded, range: NSRange(padded.startIndex..., in: padded)) { match, _, _ in
                 guard let match = match, let r = Range(match.range(at: 1), in: padded) else { return }
                 let d = String(padded[r])
                 if d >= "20200101" && d <= "20301231" { dates.append(d) }
@@ -243,21 +311,15 @@ struct PressReaderWebView: UIViewRepresentable {
             return dates.sorted().last
         }
 
-        private func loadFallbackDate() {
-            navigateToTextView(date: fallbackDate())
-        }
+        private func loadFallbackDate() { navigateToTextView(date: fallbackDate()) }
 
         private func navigateToTextView(date: String) {
-            guard let url = URL(string: "https://www.pressreader.com/\(pressReaderPath)/\(date)/textview")
-            else { return }
+            guard let url = URL(string: "https://www.pressreader.com/\(pressReaderPath)/\(date)/textview") else { return }
             DispatchQueue.main.async { self.webView?.load(URLRequest(url: url)) }
         }
 
-        func navigateToEdition(date: String) {
-            guard let url = URL(string: "https://www.pressreader.com/\(pressReaderPath)/\(date)/textview")
-            else { return }
-            print("BAVL navigateToEdition ->", url.absoluteString)
-            DispatchQueue.main.async { self.webView?.load(URLRequest(url: url)) }
+        func navigateToEdition(_ edition: PressReaderEdition) {
+            navigateToTextView(date: edition.date)
         }
 
         // MARK: - TOC
@@ -280,9 +342,9 @@ struct PressReaderWebView: UIViewRepresentable {
                 })();
             """) { [weak self] result, _ in
                 guard let self = self,
-                      let issueId = result as? String, !issueId.isEmpty
+                      let issueId = result as? String, !issueId.isEmpty,
+                      issueId != self.currentIssueId
                 else { return }
-                if issueId == self.currentIssueId { return }
                 self.currentIssueId = issueId
                 self.loadTOC(issueId: issueId)
             }
@@ -300,12 +362,12 @@ struct PressReaderWebView: UIViewRepresentable {
                 for page in pages {
                     if let articles = page["Articles"] as? [[String: Any]] {
                         for art in articles {
-                            if let idNum = art["Id"] as? Int64 { ids.append(idNum) }
-                            else if let idDouble = art["Id"] as? Double { ids.append(Int64(idDouble)) }
+                            if let n = art["Id"] as? Int64        { ids.append(n) }
+                            else if let d = art["Id"] as? Double  { ids.append(Int64(d)) }
                         }
                     }
                 }
-                print("BAVL TOC loaded: \(ids.count) articles")
+                print("BAVL TOC: \(ids.count) articles")
                 DispatchQueue.main.async { self.tocArticleIds = ids }
             }.resume()
         }
@@ -327,18 +389,13 @@ struct PressReaderWebView: UIViewRepresentable {
         // MARK: - Actions toolbar
 
         func goToPreviousArticle() {
-            guard let current = currentArticleId(),
-                  let idx = tocArticleIds.firstIndex(of: current), idx > 0
-            else { return }
-            navigate(to: tocArticleIds[idx - 1])
+            guard let c = currentArticleId(), let i = tocArticleIds.firstIndex(of: c), i > 0 else { return }
+            navigate(to: tocArticleIds[i - 1])
         }
 
         func goToNextArticle() {
-            guard let current = currentArticleId(),
-                  let idx = tocArticleIds.firstIndex(of: current),
-                  idx < tocArticleIds.count - 1
-            else { return }
-            navigate(to: tocArticleIds[idx + 1])
+            guard let c = currentArticleId(), let i = tocArticleIds.firstIndex(of: c), i < tocArticleIds.count - 1 else { return }
+            navigate(to: tocArticleIds[i + 1])
         }
 
         func goToArchive() {
@@ -367,7 +424,7 @@ struct PressReaderWebView: UIViewRepresentable {
                         av.popoverPresentationController?.permittedArrowDirections = .up
                         presenter.present(av, animated: true)
                     case .failure(let err):
-                        print("BAVL createPDF error:", err)
+                        print("BAVL PDF error:", err)
                     }
                 }
             }
@@ -375,9 +432,8 @@ struct PressReaderWebView: UIViewRepresentable {
 
         func goToTextView() {
             let date = currentDate.isEmpty ? fallbackDate() : currentDate
-            if let articleId = currentArticleId() {
-                let urlStr = "https://www.pressreader.com/\(pressReaderPath)/\(date)/\(articleId)/textview"
-                guard let url = URL(string: urlStr) else { return }
+            if let id = currentArticleId() {
+                guard let url = URL(string: "https://www.pressreader.com/\(pressReaderPath)/\(date)/\(id)/textview") else { return }
                 DispatchQueue.main.async { self.webView?.load(URLRequest(url: url)) }
             } else {
                 navigateToTextView(date: date)
@@ -386,9 +442,8 @@ struct PressReaderWebView: UIViewRepresentable {
 
         func goToPDF() {
             let date = currentDate.isEmpty ? fallbackDate() : currentDate
-            if let articleId = currentArticleId() {
-                let urlStr = "https://www.pressreader.com/\(pressReaderPath)/\(date)/\(articleId)"
-                guard let url = URL(string: urlStr) else { return }
+            if let id = currentArticleId() {
+                guard let url = URL(string: "https://www.pressreader.com/\(pressReaderPath)/\(date)/\(id)") else { return }
                 DispatchQueue.main.async { self.webView?.load(URLRequest(url: url)) }
             } else {
                 guard let url = URL(string: "https://www.pressreader.com/\(pressReaderPath)/\(date)") else { return }
@@ -399,11 +454,10 @@ struct PressReaderWebView: UIViewRepresentable {
         private func fallbackDate() -> String {
             var cal = Calendar(identifier: .gregorian)
             cal.timeZone = TimeZone(identifier: "Europe/Zurich")!
-            let yesterday = cal.date(byAdding: .day, value: -1, to: Date())!
             let fmt = DateFormatter()
             fmt.dateFormat = "yyyyMMdd"
             fmt.timeZone = TimeZone(identifier: "Europe/Zurich")
-            return fmt.string(from: yesterday)
+            return fmt.string(from: cal.date(byAdding: .day, value: -1, to: Date())!)
         }
     }
 }
@@ -418,10 +472,8 @@ struct PressReaderSheet: View {
 
     @State private var currentURL: URL? = nil
     @State private var coordinator: PressReaderWebView.Coordinator? = nil
-
-    // Généré immédiatement — pas besoin d'attendre le WebView
-    @State private var availableEditions: [String] = buildLocalEditions()
-    @State private var showEditionPicker: Bool = false
+    @State private var editions: [PressReaderEdition] = []
+    @State private var showEditionPicker = false
 
     private var viewMode: ViewMode {
         (currentURL?.absoluteString ?? "").contains("/textview") ? .text : .layout
@@ -433,9 +485,8 @@ struct PressReaderSheet: View {
 
     private var isOnJournal: Bool {
         let s = currentURL?.absoluteString ?? ""
-        let hasDate    = s.range(of: #"/[0-9]{8}"#, options: .regularExpression) != nil
-        let hasArticle = s.range(of: #"/[0-9]{8}/[0-9]{10,}"#, options: .regularExpression) != nil
-        return hasDate && !hasArticle
+        return s.range(of: #"/[0-9]{8}"#, options: .regularExpression) != nil
+            && s.range(of: #"/[0-9]{8}/[0-9]{10,}"#, options: .regularExpression) == nil
     }
 
     private var isOnArchive: Bool {
@@ -444,19 +495,17 @@ struct PressReaderSheet: View {
 
     private var currentDateFromURL: String {
         let s = currentURL?.absoluteString ?? ""
-        guard let range = s.range(of: #"[0-9]{8}"#, options: .regularExpression) else { return "" }
-        return String(s[range])
+        guard let r = s.range(of: #"[0-9]{8}"#, options: .regularExpression) else { return "" }
+        return String(s[r])
     }
 
     /// "Le Temps  —  Ven. 06.03.2026"
     private var editionLabel: String {
-        let name = newspaper.name
         let dateStr = currentDateFromURL
-        guard dateStr.count == 8,
-              let date = editionDateFormatter.date(from: dateStr)
-        else { return name }
-        let label = editionDisplayFormatter.string(from: date)
-        return "\(name)  —  \(label)"
+        guard dateStr.count == 8, let d = editionDateFormatter.date(from: dateStr) else {
+            return newspaper.name
+        }
+        return "\(newspaper.name)  —  \(editionDisplayFormatter.string(from: d))"
     }
 
     var body: some View {
@@ -471,6 +520,9 @@ struct PressReaderSheet: View {
                         pressReaderPath: newspaper.pressReaderPath,
                         onCoordinatorReady: { coord in
                             coordinator = coord
+                            coord.onEditionsLoaded = { loaded in
+                                editions = loaded
+                            }
                         },
                         onURLChange: { currentURL = $0 }
                     )
@@ -480,7 +532,6 @@ struct PressReaderSheet: View {
                     ContentUnavailableView("URL invalide", systemImage: "xmark.circle")
                 }
 
-                // Barre terminal
                 TerminalBar(
                     isOnArchive: isOnArchive,
                     isOnJournal: isOnJournal,
@@ -497,8 +548,7 @@ struct PressReaderSheet: View {
                         guard let scene = UIApplication.shared.connectedScenes
                             .compactMap({ $0 as? UIWindowScene })
                             .first(where: { $0.activationState == .foregroundActive }),
-                              let window = scene.windows.first(where: { $0.isKeyWindow }),
-                              let root = window.rootViewController
+                              let root = scene.windows.first(where: { $0.isKeyWindow })?.rootViewController
                         else { return }
                         var presenter = root
                         while let p = presenter.presentedViewController { presenter = p }
@@ -507,18 +557,18 @@ struct PressReaderSheet: View {
                     safeAreaTop: safeTop
                 )
 
-                // Dropdown éditions — overlay par-dessus tout
+                // Dropdown éditions
                 if showEditionPicker {
                     EditionPickerOverlay(
-                        editions: availableEditions,
+                        editions: editions,
                         currentDate: currentDateFromURL,
-                        safeTop: safeTop
-                    ) { selectedDate in
-                        showEditionPicker = false
-                        coordinator?.navigateToEdition(date: selectedDate)
-                    } onDismiss: {
-                        showEditionPicker = false
-                    }
+                        safeTop: safeTop,
+                        onSelect: { edition in
+                            showEditionPicker = false
+                            coordinator?.navigateToEdition(edition)
+                        },
+                        onDismiss: { showEditionPicker = false }
+                    )
                 }
             }
             .ignoresSafeArea(edges: .top)
@@ -530,68 +580,72 @@ struct PressReaderSheet: View {
 // MARK: - EditionPickerOverlay
 
 private struct EditionPickerOverlay: View {
-    let editions: [String]
+    let editions: [PressReaderEdition]
     let currentDate: String
     let safeTop: CGFloat
-    let onSelect: (String) -> Void
+    let onSelect: (PressReaderEdition) -> Void
     let onDismiss: () -> Void
 
     var body: some View {
         ZStack(alignment: .top) {
-            // Fond pour fermer en tapant dehors
             Color.black.opacity(0.50)
                 .ignoresSafeArea()
                 .onTapGesture { onDismiss() }
 
-            // Liste centrée horizontalement
-            ScrollViewReader { proxy in
-                ScrollView {
-                    VStack(spacing: 0) {
-                        ForEach(editions, id: \.self) { dateStr in
-                            let isCurrent = dateStr == currentDate
-                            Button {
-                                onSelect(dateStr)
-                            } label: {
-                                HStack(spacing: 0) {
-                                    Spacer()
-                                    Text(isCurrent ? "› " : "  ")
-                                        .font(.system(.body, design: .monospaced))
-                                        .foregroundStyle(Color(white: 0.95))
-                                    Text(formatEditionDate(dateStr))
-                                        .font(.system(.body, design: .monospaced))
-                                        .foregroundStyle(isCurrent ? Color(white: 0.95) : Color(white: 0.78))
-                                    Spacer()
+            Group {
+                if editions.isEmpty {
+                    // Avant que l'API réponde: spinner + message
+                    HStack(spacing: 10) {
+                        ProgressView()
+                            .tint(Color(white: 0.6))
+                        Text("chargement des éditions…")
+                            .font(.system(.footnote, design: .monospaced))
+                            .foregroundStyle(Color(white: 0.55))
+                    }
+                    .padding(20)
+                    .background(Color(red: 0.10, green: 0.10, blue: 0.10))
+                    .overlay(Rectangle().stroke(Color(white: 0.22), lineWidth: 0.5))
+                } else {
+                    ScrollViewReader { proxy in
+                        ScrollView {
+                            VStack(spacing: 0) {
+                                ForEach(editions) { edition in
+                                    let isCurrent = edition.date == currentDate
+                                    Button { onSelect(edition) } label: {
+                                        HStack(spacing: 0) {
+                                            Spacer()
+                                            Text(isCurrent ? "›  " : "   ")
+                                                .font(.system(.body, design: .monospaced))
+                                                .foregroundStyle(Color(white: 0.95))
+                                            Text(edition.displayLabel)
+                                                .font(.system(.body, design: .monospaced))
+                                                .foregroundStyle(isCurrent ? Color(white: 0.95) : Color(white: 0.78))
+                                            Spacer()
+                                        }
+                                        .padding(.vertical, 11)
+                                        .background(isCurrent ? Color(white: 0.18) : Color.clear)
+                                    }
+                                    .buttonStyle(.plain)
+                                    .id(edition.date)
+                                    Divider().background(Color(white: 0.18))
                                 }
-                                .padding(.vertical, 11)
-                                .background(isCurrent ? Color(white: 0.18) : Color.clear)
                             }
-                            .buttonStyle(.plain)
-                            .id(dateStr)
-
-                            Divider().background(Color(white: 0.18))
+                        }
+                        .frame(width: 240)
+                        .frame(maxHeight: 360)
+                        .onAppear {
+                            guard !currentDate.isEmpty else { return }
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                                proxy.scrollTo(currentDate, anchor: .center)
+                            }
                         }
                     }
-                }
-                .frame(width: 230)
-                .frame(maxHeight: 360)
-                .background(Color(red: 0.10, green: 0.10, blue: 0.10))
-                .overlay(Rectangle().stroke(Color(white: 0.22), lineWidth: 0.5))
-                .onAppear {
-                    // Scroller jusqu'à l'édition courante
-                    if !currentDate.isEmpty {
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-                            proxy.scrollTo(currentDate, anchor: .center)
-                        }
-                    }
+                    .background(Color(red: 0.10, green: 0.10, blue: 0.10))
+                    .overlay(Rectangle().stroke(Color(white: 0.22), lineWidth: 0.5))
                 }
             }
             .padding(.top, safeTop + 44)
         }
-    }
-
-    private func formatEditionDate(_ dateStr: String) -> String {
-        guard let date = editionDateFormatter.date(from: dateStr) else { return dateStr }
-        return editionDisplayFormatter.string(from: date)
     }
 }
 
@@ -611,22 +665,20 @@ private struct TerminalBar: View {
     let onShare: () -> Void
     var safeAreaTop: CGFloat = 0
 
-    private let activeColor   = Color(white: 0.82)
-    private let inactiveColor = Color(white: 0.45)
+    private let activeColor = Color(white: 0.82)
 
     var body: some View {
         ZStack {
-            // Bouton gauche
+            // Gauche
             HStack {
                 BarBtn(isOnArticle ? "←" : "←", color: activeColor,
                        action: isOnArticle ? onJournal : onDismiss)
                     .padding(.leading, 16)
                 Spacer()
-
-                // Boutons droite (article uniquement)
+                // Droite (article)
                 if isOnArticle {
                     BarBtn("↩", color: activeColor, action: onJournal)
-                    barSeparator
+                    barSep
                     BarBtn("↑", color: activeColor, action: onShare)
                         .padding(.trailing, 16)
                 } else {
@@ -636,9 +688,7 @@ private struct TerminalBar: View {
 
             // Centre absolu
             if isOnJournal {
-                Button {
-                    showEditionPicker.toggle()
-                } label: {
+                Button { showEditionPicker.toggle() } label: {
                     Text(editionLabel)
                         .font(.system(.footnote, design: .monospaced))
                         .foregroundStyle(activeColor)
@@ -651,7 +701,7 @@ private struct TerminalBar: View {
             if isOnArchive {
                 HStack(spacing: 0) {
                     BarBtn("txt", color: activeColor, action: onTxt)
-                    barSeparator
+                    barSep
                     BarBtn("pdf", color: activeColor, action: onPdf)
                 }
             }
@@ -664,33 +714,20 @@ private struct TerminalBar: View {
         .padding(.top, safeAreaTop)
     }
 
-    private var barSeparator: some View {
-        Text("|")
-            .font(.system(size: 12, weight: .ultraLight, design: .monospaced))
-            .foregroundStyle(Color(white: 0.22))
-            .frame(height: 44)
+    private var barSep: some View {
+        Text("|").font(.system(size: 12, weight: .ultraLight, design: .monospaced))
+            .foregroundStyle(Color(white: 0.22)).frame(height: 44)
     }
 }
 
 private struct BarBtn: View {
-    let label: String
-    let color: Color
-    let action: () -> Void
-
-    init(_ label: String, color: Color, action: @escaping () -> Void) {
-        self.label = label; self.color = color; self.action = action
-    }
-
+    let label: String; let color: Color; let action: () -> Void
+    init(_ l: String, color: Color, action: @escaping () -> Void) { label=l; self.color=color; self.action=action }
     var body: some View {
         Button(action: action) {
-            Text(label)
-                .font(.system(.body, design: .monospaced))
-                .foregroundStyle(color)
-                .frame(height: 44)
-                .padding(.horizontal, 10)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
+            Text(label).font(.system(.body, design: .monospaced))
+                .foregroundStyle(color).frame(height: 44).padding(.horizontal, 10).contentShape(Rectangle())
+        }.buttonStyle(.plain)
     }
 }
 
@@ -705,7 +742,7 @@ private struct _PressReaderWebViewBridge: UIViewRepresentable {
     func makeUIView(context: Context) -> WKWebView {
         let config = WKWebViewConfiguration()
         config.websiteDataStore = .default()
-        for name in ["bearerToken", "pageBlank", "pageTitle"] {
+        for name in ["authInfo", "bearerToken", "pageBlank", "pageTitle"] {
             config.userContentController.add(context.coordinator, name: name)
         }
         let wv = WKWebView(frame: .zero, configuration: config)
@@ -721,10 +758,7 @@ private struct _PressReaderWebViewBridge: UIViewRepresentable {
     }
 
     func updateUIView(_ uiView: WKWebView, context: Context) {}
-
-    func makeCoordinator() -> PressReaderWebView.Coordinator {
-        PressReaderWebView.Coordinator()
-    }
+    func makeCoordinator() -> PressReaderWebView.Coordinator { PressReaderWebView.Coordinator() }
 }
 
 private extension WKWebView {
