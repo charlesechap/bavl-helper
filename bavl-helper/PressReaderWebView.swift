@@ -90,10 +90,22 @@ struct PressReaderWebView: UIViewRepresentable {
         var path = window.location.pathname;
 
         // 3. Toutes les pages : bearer token + publication CID
-        // (Swift garde calendarLoaded pour n'appeler l'API qu'une seule fois)
+        // cid priorité: window.preset.cid court (ex: "switzerland/le-temps")
+        //               sinon: 2 premiers segments du path (/country/paper/...)
+        function extractCid() {
+            var p = window.preset;
+            if (p && p.cid && p.cid.indexOf('/') !== -1 && p.cid.length < 60) {
+                return p.cid;  // ex: "switzerland/le-temps"
+            }
+            // Fallback: extraire depuis le path URL
+            var parts = window.location.pathname.replace(/^\\//, '').split('/');
+            if (parts.length >= 2) return parts[0] + '/' + parts[1];
+            return null;
+        }
         function sendAuthInfo() {
-            var token = (window.preset && window.preset.bearerToken) ? window.preset.bearerToken : null;
-            var cid   = (window.preset && window.preset.cid)         ? window.preset.cid         : null;
+            var p = window.preset;
+            var token = p && p.bearerToken ? p.bearerToken : null;
+            var cid   = extractCid();
             if (token && cid) {
                 window.webkit.messageHandlers.authInfo.postMessage(
                     JSON.stringify({token: token, cid: cid})
@@ -229,40 +241,54 @@ struct PressReaderWebView: UIViewRepresentable {
             var request = URLRequest(url: url, timeoutInterval: 10)
             request.setValue("Bearer \(bearerToken)", forHTTPHeaderField: "Authorization")
             request.setValue("application/json", forHTTPHeaderField: "Accept")
-            print("BAVL calendar fetch ->", url.absoluteString)
+            print("BAVL calendar fetch -> cid=\(cid)")
 
-            URLSession.shared.dataTask(with: request) { [weak self] data, _, error in
-                guard let self = self, let data = data, error == nil else {
-                    print("BAVL calendar error:", error?.localizedDescription ?? "nil data")
-                    return
-                }
+            URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
+                guard let self = self else { return }
+                if let err = error { print("BAVL calendar network error:", err); return }
+                let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+                guard let data = data else { print("BAVL calendar nil data, status=\(status)"); return }
                 let raw = String(data: data, encoding: .utf8) ?? ""
-                print("BAVL calendar response (200):", String(raw.prefix(200)))
+                print("BAVL calendar status=\(status) body(300):", String(raw.prefix(300)))
+                guard status == 200 else { return }
+
                 guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                       let years = root["Years"] as? [String: Any]
-                else { return }
+                else {
+                    print("BAVL calendar: impossible de parser 'Years' dans la réponse")
+                    return
+                }
 
                 var editions: [PressReaderEdition] = []
                 for (yearStr, monthsAny) in years {
-                    guard let months = monthsAny as? [String: Any] else { continue }
+                    guard let months = monthsAny as? [String: Any],
+                          let year = Int(yearStr) else { continue }
                     for (monthStr, daysAny) in months {
-                        guard let days = daysAny as? [String: Any] else { continue }
+                        guard let days = daysAny as? [String: Any],
+                              let month = Int(monthStr) else { continue }
                         for (dayStr, infoAny) in days {
                             guard let info = infoAny as? [String: Any],
-                                  let available = info["P"] as? Bool, available,
-                                  let year  = Int(yearStr),
-                                  let month = Int(monthStr),
-                                  let day   = Int(dayStr)
+                                  let day = Int(dayStr) else { continue }
+                            // P peut être Bool ou Int(1) selon la version API
+                            let available: Bool
+                            if let b = info["P"] as? Bool         { available = b }
+                            else if let n = info["P"] as? Int     { available = n != 0 }
+                            else if let n = info["P"] as? NSNumber { available = n.boolValue }
                             else { continue }
-                            let issueId = (info["Id"] as? Int) ?? 0
+                            guard available else { continue }
+                            // Id peut être Int ou Double (JSONSerialization)
+                            let issueId: Int
+                            if let n = info["Id"] as? Int          { issueId = n }
+                            else if let d = info["Id"] as? Double  { issueId = Int(d) }
+                            else { issueId = 0 }
                             let dateStr = String(format: "%04d%02d%02d", year, month, day)
                             editions.append(PressReaderEdition(date: dateStr, issueId: issueId))
                         }
                     }
                 }
-                // Trier par date décroissante
                 let sorted = editions.sorted { $0.date > $1.date }
-                print("BAVL calendar: \(sorted.count) éditions disponibles")
+                print("BAVL calendar: \(sorted.count) éditions parsées")
+                if sorted.isEmpty { print("BAVL calendar: Years keys =", Array(years.keys).prefix(3)) }
                 DispatchQueue.main.async { self.onEditionsLoaded?(sorted) }
             }.resume()
         }
@@ -520,6 +546,13 @@ struct PressReaderSheet: View {
                             coordinator = coord
                             coord.onEditionsLoaded = { loaded in
                                 editions = loaded
+                                // Vérifier si nouvelle édition → notification
+                                Task { @MainActor in
+                                    await EditionNotifier.shared.checkAndNotify(
+                                        editions: loaded,
+                                        for: newspaper
+                                    )
+                                }
                             }
                         },
                         onURLChange: { currentURL = $0 }
@@ -763,4 +796,5 @@ private extension WKWebView {
     func goBackward() { goBack() }
     func goForward_() { goForward() }
 }
+
 
