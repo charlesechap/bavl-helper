@@ -546,8 +546,6 @@ struct PressReaderSheet: View {
                             coordinator = coord
                             coord.onEditionsLoaded = { loaded in
                                 editions = loaded
-                                // Vérifier si nouvelle édition → notification
-                                EditionNotifier.shared.checkAndNotify(editions: loaded, for: newspaper)
                             }
                         },
                         onURLChange: { currentURL = $0 }
