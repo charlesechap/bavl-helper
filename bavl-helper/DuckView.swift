@@ -119,6 +119,9 @@ struct DuckHeaderView: View {
             .onChange(of: authReady) { _, ready in
                 if ready && walkDone { onWalkComplete() }
             }
+            .onChange(of: walkDone) { _, done in
+                if done && authReady { onWalkComplete() }
+            }
         }
         .frame(height: 88)
         .clipped()
