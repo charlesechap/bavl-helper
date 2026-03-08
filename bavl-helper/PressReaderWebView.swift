@@ -378,9 +378,14 @@ struct PressReaderWebView: UIViewRepresentable {
                     req.setValue("application/json", forHTTPHeaderField: "Accept")
 
                     group.enter()
-                    URLSession.shared.dataTask(with: req) { data, resp, _ in
+                    let isFirst = dateStr == dates[0]
+                    URLSession.shared.dataTask(with: req) { data, resp, err in
                         defer { semaphore.signal(); group.leave() }
                         let status = (resp as? HTTPURLResponse)?.statusCode ?? 0
+                        if isFirst {
+                            let body = data.flatMap { String(data: $0, encoding: .utf8) } ?? "nil"
+                            print("BAVL iterative[\(dateStr)] status=\(status) err=\(err?.localizedDescription ?? "nil") body(200):", String(body.prefix(200)))
+                        }
                         guard status == 200, let data = data,
                               let parsed = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                               let issueDateRaw = parsed["issueDate"] as? String
