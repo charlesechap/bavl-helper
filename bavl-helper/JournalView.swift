@@ -93,13 +93,22 @@ class JournalViewModel: ObservableObject {
             URLSession.shared.dataTask(with: req) { data, resp, _ in
                 defer { group.leave() }
                 let status = (resp as? HTTPURLResponse)?.statusCode ?? 0
-                guard let data,
-                      let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
-                else { print("JOURNAL meta error status=\(status)"); return }
-                print("JOURNAL meta status=\(status) keys=\(root.keys.sorted())")
-                let items = (root["Items"] as? [[String: Any]]) ?? (root["items"] as? [[String: Any]]) ?? []
+                guard let data else { print("JOURNAL meta no data"); return }
+                // Logger les 200 premiers chars pour voir la structure
+                let preview = String(data.prefix(200).map { Character(Unicode.Scalar($0)) })
+                print("JOURNAL meta status=\(status) preview=\(preview)")
+                // Essayer dict {Items:[]} ou array directement []
+                var items: [[String: Any]] = []
+                if let obj = try? JSONSerialization.jsonObject(with: data) {
+                    if let dict = obj as? [String: Any] {
+                        items = (dict["Items"] as? [[String: Any]])
+                            ?? (dict["items"] as? [[String: Any]]) ?? []
+                    } else if let arr = obj as? [[String: Any]] {
+                        items = arr
+                    }
+                }
                 let parsed = items.compactMap { ArticleMeta.parse(from: $0) }
-                print("JOURNAL meta parsed=\(parsed.count)")
+                print("JOURNAL meta items=\(items.count) parsed=\(parsed.count)")
                 DispatchQueue.main.async { allMeta.append(contentsOf: parsed) }
             }.resume()
         }
