@@ -144,7 +144,7 @@ struct PressReaderWebView: UIViewRepresentable {
             window.fetch = function(input, init) {
                 var url = typeof input === 'string' ? input : (input && input.url || '');
                 return __df(input, init).then(function(r) {
-                    window.webkit.messageHandlers.networkLog.postMessage('F ' + r.status + ' ' + url.replace(/https?:\/\/[^\/]+/, ''));
+                    window.webkit.messageHandlers.networkLog.postMessage('F ' + r.status + ' ' + url.replace(url.indexOf('/', 8) > 0 ? url.substring(0, url.indexOf('/', 8)) : url, ''));
                     return r;
                 });
             };
