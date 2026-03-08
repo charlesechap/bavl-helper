@@ -343,24 +343,22 @@ struct PressReaderWebView: UIViewRepresentable {
         /// Récupère le calendrier des éditions via `calendar/get?cid=shortCid`.
         /// Toute entrée dans `Years` = édition publiée (P/Dis/V sont des métadonnées).
         /// Émet `onEditionsLoaded` et navigue vers la dernière édition si pas encore fait.
-        private func fetchCalendar(shortCid: String) {
+        private func fetchCalendar(shortCid: String, token: String) {
             self.shortCid = shortCid
             guard !calendarLoaded,
+                  !token.isEmpty,
                   let url = URL(string: "https://ingress.pressreader.com/services/calendar/get?cid=\(shortCid)")
             else { return }
-            webView?.evaluateJavaScript("window.preset?.bearerToken ?? ''") { [weak self] result, _ in
-                guard let self, let token = result as? String, !token.isEmpty else { return }
-                var req = URLRequest(url: url, timeoutInterval: 10)
-                req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-                req.setValue("application/json", forHTTPHeaderField: "Accept")
-                URLSession.shared.dataTask(with: req) { [weak self] data, resp, _ in
-                    guard let self,
-                          (resp as? HTTPURLResponse)?.statusCode == 200,
-                          let data, let raw = String(data: data, encoding: .utf8)
-                    else { return }
-                    if self.parseCalendarAndEmit(body: raw) { self.calendarLoaded = true }
-                }.resume()
-            }
+            var req = URLRequest(url: url, timeoutInterval: 10)
+            req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+            req.setValue("application/json", forHTTPHeaderField: "Accept")
+            URLSession.shared.dataTask(with: req) { [weak self] data, resp, _ in
+                guard let self,
+                      (resp as? HTTPURLResponse)?.statusCode == 200,
+                      let data, let raw = String(data: data, encoding: .utf8)
+                else { return }
+                if self.parseCalendarAndEmit(body: raw) { self.calendarLoaded = true }
+            }.resume()
         }
 
 
@@ -391,7 +389,7 @@ struct PressReaderWebView: UIViewRepresentable {
                 let scLog = shortCid ?? "nil"
                 print("BAVL resolveShortCid keys=\(keys) shortCid=\(scLog)")
                 guard let shortCid, !shortCid.isEmpty else { return }
-                self.fetchCalendar(shortCid: shortCid)
+                self.fetchCalendar(shortCid: shortCid, token: token)
             }.resume()
         }
 
