@@ -564,6 +564,7 @@ struct PressReaderSheet: View {
     @State private var coordinator: PressReaderWebView.Coordinator? = nil
     @State private var editions: [PressReaderEdition] = []
     @State private var showEditionPicker = false
+    @State private var articleContent: ArticleContent? = nil
 
     private var viewMode: ViewMode {
         (currentURL?.absoluteString ?? "").contains("/textview") ? .text : .layout
@@ -612,6 +613,9 @@ struct PressReaderSheet: View {
                             coordinator = coord
                             coord.onEditionsLoaded = { loaded in
                                 editions = loaded
+                            }
+                            coord.onArticleReady = { article in
+                                articleContent = article
                             }
                         },
                         onURLChange: { currentURL = $0 }
@@ -662,6 +666,17 @@ struct PressReaderSheet: View {
                 }
             }
             .ignoresSafeArea(edges: .top)
+        }
+        .sheet(item: $articleContent) { article in
+            ArticleReaderView(
+                article: article,
+                onDismiss: { articleContent = nil },
+                onJournal: {
+                    articleContent = nil
+                    coordinator?.goToJournal()
+                }
+            )
+            .presentationCornerRadius(0)
         }
         .preferredColorScheme(.dark)
     }
