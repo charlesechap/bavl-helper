@@ -406,14 +406,8 @@ struct PressReaderWebView: UIViewRepresentable {
                             guard let months = monthsAny as? [String: Any] else { continue }
                             for (monthStr, daysAny) in months {
                                 guard let days = daysAny as? [String: Any] else { continue }
-                                for (dayStr, infoAny) in days {
-                                    guard let info = infoAny as? [String: Any] else { continue }
-                                    let p: Bool
-                                    if let b = info["P"] as? Bool { p = b }
-                                    else if let n = info["P"] as? Int { p = n != 0 }
-                                    else if let n = info["P"] as? NSNumber { p = n.boolValue }
-                                    else { continue }
-                                    if p, let y = Int(yearStr), let m = Int(monthStr), let d = Int(dayStr) {
+                                for dayStr in days.keys {
+                                    if let d = Int(dayStr), let y = Int(yearStr), let m = Int(monthStr) {
                                         let dateStr = String(format: "%04d%02d%02d", y, m, d)
                                         if dateStr > latest { latest = dateStr }
                                     }
@@ -449,17 +443,14 @@ struct PressReaderWebView: UIViewRepresentable {
                 for (monthStr, daysAny) in months {
                     guard let days = daysAny as? [String: Any], let month = Int(monthStr) else { continue }
                     for (dayStr, infoAny) in days {
-                        guard let info = infoAny as? [String: Any], let day = Int(dayStr) else { continue }
-                        let available: Bool
-                        if let b = info["P"] as? Bool          { available = b }
-                        else if let n = info["P"] as? Int      { available = n != 0 }
-                        else if let n = info["P"] as? NSNumber { available = n.boolValue }
-                        else { continue }
-                        guard available else { continue }
+                        guard let day = Int(dayStr) else { continue }
+                        // Toute entrée = édition publiée (P/Dis/V sont des métadonnées)
                         let issueId: Int
-                        if let n = info["Id"] as? Int         { issueId = n }
-                        else if let d = info["Id"] as? Double { issueId = Int(d) }
-                        else { issueId = 0 }
+                        if let info = infoAny as? [String: Any] {
+                            if let n = info["Id"] as? Int         { issueId = n }
+                            else if let n = info["Id"] as? Double { issueId = Int(n) }
+                            else { issueId = 0 }
+                        } else { issueId = 0 }
                         editions.append(PressReaderEdition(date: String(format: "%04d%02d%02d", year, month, day), issueId: issueId))
                     }
                 }
