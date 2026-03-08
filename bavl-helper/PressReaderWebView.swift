@@ -465,7 +465,7 @@ struct PressReaderWebView: UIViewRepresentable {
                 }
             }
             let sorted = editions.sorted { $0.date > $1.date }
-            print("BAVL calendar: \(sorted.count) éditions parsées depuis interceptor")
+            print("BAVL calendar: \(sorted.count) éditions parsées depuis interceptor:", sorted.map { $0.date })
             guard !sorted.isEmpty else { return false }
             calendarLoaded = true
             DispatchQueue.main.async { self.onEditionsLoaded?(sorted) }
