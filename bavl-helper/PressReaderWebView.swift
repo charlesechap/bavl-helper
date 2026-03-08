@@ -118,7 +118,28 @@ struct PressReaderWebView: UIViewRepresentable {
             setTimeout(function() { sendAuthInfo(); }, 800);
         }
 
-        // 4. Sur /textview : titre
+        // 4. Intercepter fetch() pour capturer la réponse calendar/get
+        //    PressReader appelle cet endpoint avec ses propres cookies de session
+        //    → on capte la réponse et on l'envoie à Swift
+        if (!window.__bavl_fetch_patched) {
+            window.__bavl_fetch_patched = true;
+            var _origFetch = window.fetch.bind(window);
+            window.fetch = function(input, init) {
+                var url = (typeof input === 'string') ? input : (input && input.url ? input.url : '');
+                var isCalendar = url && url.indexOf('calendar/get') !== -1;
+                return _origFetch(input, init).then(function(response) {
+                    if (isCalendar) {
+                        var cloned = response.clone();
+                        cloned.text().then(function(body) {
+                            window.webkit.messageHandlers.calendarRaw.postMessage(body);
+                        });
+                    }
+                    return response;
+                });
+            };
+        }
+
+        // 5. Sur /textview : titre
         if (path.indexOf('/textview') !== -1) {
             function sendTitle() {
                 var title = document.title || '';
@@ -137,7 +158,7 @@ struct PressReaderWebView: UIViewRepresentable {
     func makeUIView(context: Context) -> WKWebView {
         let config = WKWebViewConfiguration()
         config.websiteDataStore = .default()
-        for name in ["authInfo", "bearerToken", "pageBlank", "pageTitle"] {
+        for name in ["authInfo", "bearerToken", "pageBlank", "pageTitle", "calendarRaw"] {
             config.userContentController.add(context.coordinator, name: name)
         }
         let wv = WKWebView(frame: .zero, configuration: config)
@@ -208,17 +229,26 @@ struct PressReaderWebView: UIViewRepresentable {
                 let cid   = dict["cid"]   ?? ""
                 print("BAVL authInfo: token.count=\(token.count) cid=\(cid)")
                 if token.isEmpty { loadFallbackDate(); return }
-                // Calendrier local (API Years vide pour tokens institutionnels)
-                if !calendarLoaded {
-                    calendarLoaded = true
-                    let localEditions = buildLocalEditions()
-                    DispatchQueue.main.async { self.onEditionsLoaded?(localEditions) }
-                }
                 // Navigation vers dernière édition (une seule fois)
                 if !lastEditionLoaded {
                     lastEditionLoaded = true
                     fetchLastEditionViaAPI(bearerToken: token, cid: cid)
                 }
+                // Éditions: attend calendarRaw depuis fetch interceptor (3s), sinon fallback
+                if !calendarLoaded {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) { [weak self] in
+                        guard let self = self, !self.calendarLoaded else { return }
+                        print("BAVL calendar: timeout interceptor, fallback itératif")
+                        self.calendarLoaded = true
+                        self.fetchEditionsIterative(bearerToken: token, cid: cid)
+                    }
+                }
+
+            case "calendarRaw":
+                guard !calendarLoaded else { return }
+                let body = message.body as? String ?? ""
+                print("BAVL calendarRaw intercepté, body(300):", String(body.prefix(300)))
+                parseCalendarAndEmit(body: body)
 
             // Rétro-compatibilité si bearerToken est encore émis
             case "bearerToken":
@@ -259,66 +289,120 @@ struct PressReaderWebView: UIViewRepresentable {
 
         // MARK: - Calendar API (liste des éditions disponibles)
 
-        /// Charge le calendrier complet depuis l'API PressReader
-        /// GET https://ingress.pressreader.com/services/calendar/get?cid={cid}
-        /// Réponse: {"Years": {"2026": {"3": {"6": {"P": true, "Id": 11530628}}}}}
-        private func fetchCalendar(bearerToken: String, cid: String) {
-            guard let encoded = cid.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
-                  let url = URL(string: "https://ingress.pressreader.com/services/calendar/get?cid=\(encoded)")
-            else { return }
-            var request = URLRequest(url: url, timeoutInterval: 10)
-            request.setValue("Bearer \(bearerToken)", forHTTPHeaderField: "Authorization")
-            request.setValue("application/json", forHTTPHeaderField: "Accept")
-            print("BAVL calendar fetch -> cid=\(cid)")
-
-            URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
-                guard let self = self else { return }
-                if let err = error { print("BAVL calendar network error:", err); return }
-                let status = (response as? HTTPURLResponse)?.statusCode ?? 0
-                guard let data = data else { print("BAVL calendar nil data, status=\(status)"); return }
-                let raw = String(data: data, encoding: .utf8) ?? ""
-                print("BAVL calendar status=\(status) body(300):", String(raw.prefix(300)))
-                guard status == 200 else { return }
-
-                guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                      let years = root["Years"] as? [String: Any]
-                else {
-                    print("BAVL calendar: impossible de parser 'Years' dans la réponse")
-                    return
-                }
-
-                var editions: [PressReaderEdition] = []
-                for (yearStr, monthsAny) in years {
-                    guard let months = monthsAny as? [String: Any],
-                          let year = Int(yearStr) else { continue }
-                    for (monthStr, daysAny) in months {
-                        guard let days = daysAny as? [String: Any],
-                              let month = Int(monthStr) else { continue }
-                        for (dayStr, infoAny) in days {
-                            guard let info = infoAny as? [String: Any],
-                                  let day = Int(dayStr) else { continue }
-                            // P peut être Bool ou Int(1) selon la version API
-                            let available: Bool
-                            if let b = info["P"] as? Bool         { available = b }
-                            else if let n = info["P"] as? Int     { available = n != 0 }
-                            else if let n = info["P"] as? NSNumber { available = n.boolValue }
-                            else { continue }
-                            guard available else { continue }
-                            // Id peut être Int ou Double (JSONSerialization)
-                            let issueId: Int
-                            if let n = info["Id"] as? Int          { issueId = n }
-                            else if let d = info["Id"] as? Double  { issueId = Int(d) }
-                            else { issueId = 0 }
-                            let dateStr = String(format: "%04d%02d%02d", year, month, day)
-                            editions.append(PressReaderEdition(date: dateStr, issueId: issueId))
-                        }
+        /// Parse un body JSON calendar/get et émet les éditions si non vides.
+        /// Retourne true si des éditions ont été trouvées.
+        @discardableResult
+        private func parseCalendarAndEmit(body: String) -> Bool {
+            guard let data = body.data(using: .utf8),
+                  let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let years = root["Years"] as? [String: Any], !years.isEmpty
+            else {
+                print("BAVL calendar: Years vide ou parse échoué")
+                return false
+            }
+            var editions: [PressReaderEdition] = []
+            for (yearStr, monthsAny) in years {
+                guard let months = monthsAny as? [String: Any], let year = Int(yearStr) else { continue }
+                for (monthStr, daysAny) in months {
+                    guard let days = daysAny as? [String: Any], let month = Int(monthStr) else { continue }
+                    for (dayStr, infoAny) in days {
+                        guard let info = infoAny as? [String: Any], let day = Int(dayStr) else { continue }
+                        let available: Bool
+                        if let b = info["P"] as? Bool          { available = b }
+                        else if let n = info["P"] as? Int      { available = n != 0 }
+                        else if let n = info["P"] as? NSNumber { available = n.boolValue }
+                        else { continue }
+                        guard available else { continue }
+                        let issueId: Int
+                        if let n = info["Id"] as? Int         { issueId = n }
+                        else if let d = info["Id"] as? Double { issueId = Int(d) }
+                        else { issueId = 0 }
+                        editions.append(PressReaderEdition(date: String(format: "%04d%02d%02d", year, month, day), issueId: issueId))
                     }
                 }
-                let sorted = editions.sorted { $0.date > $1.date }
-                print("BAVL calendar: \(sorted.count) éditions parsées")
-                if sorted.isEmpty { print("BAVL calendar: Years keys =", Array(years.keys).prefix(3)) }
-                DispatchQueue.main.async { self.onEditionsLoaded?(sorted) }
-            }.resume()
+            }
+            let sorted = editions.sorted { $0.date > $1.date }
+            print("BAVL calendar: \(sorted.count) éditions parsées depuis interceptor")
+            guard !sorted.isEmpty else { return false }
+            calendarLoaded = true
+            DispatchQueue.main.async { self.onEditionsLoaded?(sorted) }
+            return true
+        }
+
+        /// Fallback: itère jour par jour (catalog/v2/publications/{cid}/issues/{date})
+        /// pour construire la liste des 30 dernières éditions disponibles.
+        private func fetchEditionsIterative(bearerToken: String, cid: String) {
+            guard let encoded = cid.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) else { return }
+            let base = "https://ingress.pressreader.com/services/catalog/v2/publications/\(encoded)/issues/"
+
+            var cal = Calendar(identifier: .gregorian)
+            cal.timeZone = TimeZone(identifier: "Europe/Zurich")!
+            let fmt = DateFormatter()
+            fmt.dateFormat = "yyyy-MM-dd"
+            fmt.timeZone = TimeZone(identifier: "Europe/Zurich")
+            let fmtOut = DateFormatter()
+            fmtOut.dateFormat = "yyyyMMdd"
+            fmtOut.timeZone = TimeZone(identifier: "Europe/Zurich")
+
+            // Génère les 90 derniers jours
+            var dates: [String] = []
+            var d = Date()
+            for _ in 0..<90 {
+                dates.append(fmt.string(from: d))
+                d = cal.date(byAdding: .day, value: -1, to: d)!
+            }
+
+            var editions: [PressReaderEdition] = []
+            let group = DispatchGroup()
+            let lock = NSLock()
+            var remaining = dates.count
+
+            // Limite concurrence à 10 appels simultanés
+            let semaphore = DispatchSemaphore(value: 10)
+
+            DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+                guard let self = self else { return }
+                for dateStr in dates {
+                    semaphore.wait()
+                    // Arrêter si on a déjà 30 éditions
+                    lock.lock()
+                    let count = editions.count
+                    lock.unlock()
+                    if count >= 30 { semaphore.signal(); remaining -= 1; continue }
+
+                    guard let url = URL(string: "\(base)\(dateStr)") else {
+                        semaphore.signal(); remaining -= 1; continue
+                    }
+                    var req = URLRequest(url: url, timeoutInterval: 8)
+                    req.setValue("Bearer \(bearerToken)", forHTTPHeaderField: "Authorization")
+                    req.setValue("application/json", forHTTPHeaderField: "Accept")
+
+                    group.enter()
+                    URLSession.shared.dataTask(with: req) { data, resp, _ in
+                        defer { semaphore.signal(); group.leave() }
+                        let status = (resp as? HTTPURLResponse)?.statusCode ?? 0
+                        guard status == 200, let data = data,
+                              let parsed = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                              let issueDateRaw = parsed["issueDate"] as? String
+                        else { return }
+                        // issueDate format: "2026-03-07T00:00:00" ou "2026-03-07"
+                        let yyyyMMdd = issueDateRaw.replacingOccurrences(of: "-", with: "").prefix(8)
+                        let issueId: Int
+                        if let n = parsed["id"] as? Int { issueId = n }
+                        else if let n = parsed["Id"] as? Int { issueId = n }
+                        else { issueId = 0 }
+                        lock.lock()
+                        editions.append(PressReaderEdition(date: String(yyyyMMdd), issueId: issueId))
+                        lock.unlock()
+                    }.resume()
+                }
+                group.notify(queue: .main) { [weak self] in
+                    guard let self = self else { return }
+                    let sorted = editions.sorted { $0.date > $1.date }
+                    print("BAVL iterative: \(sorted.count) éditions trouvées")
+                    self.onEditionsLoaded?(sorted)
+                }
+            }
         }
 
         // MARK: - API (dernière édition)
@@ -794,7 +878,7 @@ private struct _PressReaderWebViewBridge: UIViewRepresentable {
     func makeUIView(context: Context) -> WKWebView {
         let config = WKWebViewConfiguration()
         config.websiteDataStore = .default()
-        for name in ["authInfo", "bearerToken", "pageBlank", "pageTitle"] {
+        for name in ["authInfo", "bearerToken", "pageBlank", "pageTitle", "calendarRaw"] {
             config.userContentController.add(context.coordinator, name: name)
         }
         let wv = WKWebView(frame: .zero, configuration: config)
