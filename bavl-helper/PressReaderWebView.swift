@@ -211,6 +211,7 @@ struct PressReaderWebView: UIViewRepresentable {
         var onTOCLoaded: (([Int64], String) -> Void)?   // (articleIds, issueId)
         private var urlObservation: NSKeyValueObservation?
         private var calendarLoaded = false
+        private var shortCid: String = ""
         private var lastFetchedArticleId: String = ""
         private var lastEditionLoaded = false
 
@@ -341,6 +342,7 @@ struct PressReaderWebView: UIViewRepresentable {
         /// Toute entrée dans `Years` = édition publiée (P/Dis/V sont des métadonnées).
         /// Émet `onEditionsLoaded` et navigue vers la dernière édition si pas encore fait.
         private func fetchCalendar(shortCid: String) {
+            self.shortCid = shortCid
             guard !calendarLoaded,
                   let url = URL(string: "https://ingress.pressreader.com/services/calendar/get?cid=\(shortCid)")
             else { return }
@@ -402,6 +404,13 @@ struct PressReaderWebView: UIViewRepresentable {
             // Naviguer vers la dernière édition disponible si pas encore fait
             if !lastEditionLoaded, let latest = sorted.first {
                 lastEditionLoaded = true
+                // Mode zero-webview: construire issueId long et charger TOC directement
+                // Format: {shortCid}{date}00000000001001
+                let issueIdLong = "\(self.shortCid)\(latest.date)00000000001001"
+                print("BAVL TOC direct: issueId=\(issueIdLong) onTOCLoaded=\(self.onTOCLoaded != nil)")
+                self.loadTOC(issueId: issueIdLong)
+                self.currentDate = latest.date
+                // Naviguer dans le WebView invisible (pour garder le contexte auth)
                 navigateToTextView(date: latest.date)
             }
             return true
