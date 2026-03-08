@@ -214,6 +214,19 @@ struct PressReaderWebView: UIViewRepresentable {
                     guard let self = self else { return }
                     self.onURLChange?(webView.url)
                     if let urlStr = webView.url?.absoluteString {
+                        // Debug: détecter URL article et fetch contenu
+                        let parts = urlStr.split(separator: "/").map(String.init)
+                        if let articleId = parts.last,
+                           articleId.count >= 12, articleId.allSatisfy({ $0.isNumber }),
+                           !self.articleDebugDone {
+                            self.articleDebugDone = true
+                            webView.evaluateJavaScript("window.preset?.bearerToken ?? ''") { [weak self] result, _ in
+                                guard let self, let token = result as? String, !token.isEmpty else { return }
+                                self.fetchArticleDebug(articleId: articleId, bearerToken: token)
+                            }
+                        }
+                    }
+                    if let urlStr = webView.url?.absoluteString {
                         let dateRegex = try? NSRegularExpression(pattern: #"/(\d{8})/"#)
                         if let match = dateRegex?.firstMatch(in: urlStr, range: NSRange(urlStr.startIndex..., in: urlStr)),
                            let range = Range(match.range(at: 1), in: urlStr) {
@@ -231,18 +244,6 @@ struct PressReaderWebView: UIViewRepresentable {
             webView.evaluateJavaScript(PressReaderWebView.injectedJS) { _, err in
                 if let err = err { print("BAVL JS error:", err) }
             }
-            // Debug: si URL article ({date}/{id}), fetch contenu via Swift
-            let urlParts = url.split(separator: "/").map(String.init)
-            if let articleId = urlParts.last,
-               articleId.count >= 12, articleId.allSatisfy({ $0.isNumber }),
-               !articleDebugDone {
-                articleDebugDone = true
-                webView.evaluateJavaScript("window.preset?.bearerToken ?? ''") { [weak self] result, _ in
-                    guard let self, let token = result as? String, !token.isEmpty else { return }
-                    self.fetchArticleDebug(articleId: articleId, bearerToken: token)
-                }
-            }
-
             if url.contains("pressreader.com") {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
                     self?.fetchTOCIfNeeded()
