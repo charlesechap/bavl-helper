@@ -1,4 +1,5 @@
 import SwiftUI
+import Combine
 
 // MARK: - Modèles article léger (metadata)
 
