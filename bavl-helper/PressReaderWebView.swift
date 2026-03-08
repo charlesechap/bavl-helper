@@ -143,8 +143,15 @@ struct PressReaderWebView: UIViewRepresentable {
             var __df = window.fetch;
             window.fetch = function(input, init) {
                 var url = typeof input === 'string' ? input : (input && input.url || '');
+                var isArticle = url.indexOf('/v1/articles/') !== -1 && url.indexOf('fullBody=true') !== -1 && url.indexOf('articleFields=8191') !== -1;
                 return __df(input, init).then(function(r) {
-                    window.webkit.messageHandlers.networkLog.postMessage('F ' + r.status + ' ' + url.replace(url.indexOf('/', 8) > 0 ? url.substring(0, url.indexOf('/', 8)) : url, ''));
+                    var path = url.replace(url.indexOf('/', 8) > 0 ? url.substring(0, url.indexOf('/', 8)) : url, '');
+                    window.webkit.messageHandlers.networkLog.postMessage('F ' + r.status + ' ' + path);
+                    if (isArticle && r.status === 200) {
+                        r.clone().text().then(function(body) {
+                            window.webkit.messageHandlers.networkLog.postMessage('ARTICLE_JSON:' + body.substring(0, 2000));
+                        });
+                    }
                     return r;
                 });
             };
