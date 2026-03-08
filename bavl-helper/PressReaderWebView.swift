@@ -205,6 +205,10 @@ struct PressReaderWebView: UIViewRepresentable {
         var onEditionsLoaded: (([PressReaderEdition]) -> Void)?
         /// Callback déclenché quand un article est prêt à afficher en mode natif
         var onArticleReady: ((ArticleContent) -> Void)?
+        /// Callback déclenché quand le Bearer token est disponible (mode zero-webview)
+        var onBearerReady: ((String, String) -> Void)?  // (token, pressReaderPath)
+        /// Callback déclenché quand le TOC est chargé (mode zero-webview)
+        var onTOCLoaded: (([Int64], String) -> Void)?   // (articleIds, issueId)
         private var urlObservation: NSKeyValueObservation?
         private var calendarLoaded = false
         private var lastFetchedArticleId: String = ""
@@ -269,6 +273,8 @@ struct PressReaderWebView: UIViewRepresentable {
                 let cid   = dict["cid"]   ?? ""
                 print("BAVL authInfo: token.count=\(token.count) cid=\(cid)")
                 if token.isEmpty { loadFallbackDate(); return }
+                // Mode zero-webview : notifier dès que le token est prêt
+                self.onBearerReady?(token, self.pressReaderPath)
 
 
             case "calendarRaw":
@@ -473,7 +479,10 @@ struct PressReaderWebView: UIViewRepresentable {
                     }
                 }
                 print("BAVL TOC: \(ids.count) articles")
-                DispatchQueue.main.async { self.tocArticleIds = ids }
+                DispatchQueue.main.async {
+                    self.tocArticleIds = ids
+                    self.onTOCLoaded?(ids, issueId)
+                }
             }.resume()
         }
 
