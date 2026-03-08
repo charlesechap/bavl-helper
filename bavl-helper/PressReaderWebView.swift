@@ -126,12 +126,14 @@ struct PressReaderWebView: UIViewRepresentable {
             var _origFetch = window.fetch.bind(window);
             window.fetch = function(input, init) {
                 var url = (typeof input === 'string') ? input : (input && input.url ? input.url : '');
+                var isInteresting = url && (url.indexOf('ingress.pressreader') !== -1 || url.indexOf('/services/') !== -1);
                 var isCalendar = url && url.indexOf('calendar/get') !== -1;
                 return _origFetch(input, init).then(function(response) {
-                    if (isCalendar) {
+                    if (isInteresting) {
                         var cloned = response.clone();
                         cloned.text().then(function(body) {
-                            window.webkit.messageHandlers.calendarRaw.postMessage(body);
+                            var msg = 'fetch ' + response.status + ' ' + url.split('?')[0] + ' | ' + body.substring(0, 120);
+                            window.webkit.messageHandlers.calendarRaw.postMessage(isCalendar ? body : '__log:' + msg);
                         });
                     }
                     return response;
@@ -237,10 +239,14 @@ struct PressReaderWebView: UIViewRepresentable {
 
 
             case "calendarRaw":
-                guard !calendarLoaded else { return }
                 let body = message.body as? String ?? ""
-                print("BAVL calendarRaw intercepté, body(300):", String(body.prefix(300)))
-                parseCalendarAndEmit(body: body)
+                if body.hasPrefix("__log:") {
+                    print("BAVL fetch intercept:", body.dropFirst(6))
+                } else {
+                    guard !calendarLoaded else { return }
+                    print("BAVL calendarRaw intercepté, body(300):", String(body.prefix(300)))
+                    parseCalendarAndEmit(body: body)
+                }
 
             // Rétro-compatibilité si bearerToken est encore émis
             case "bearerToken":
