@@ -153,7 +153,7 @@ struct PressReaderWebView: UIViewRepresentable {
                 var x = new __XHR(), _u = '';
                 x.open = function(m, u) { _u = u; __XHR.prototype.open.call(x, m, u); };
                 x.addEventListener('load', function() {
-                    window.webkit.messageHandlers.networkLog.postMessage('X ' + x.status + ' ' + _u.replace(/https?:\/\/[^\/]+/, ''));
+                    window.webkit.messageHandlers.networkLog.postMessage('X ' + x.status + ' ' + _u.replace(_u.indexOf('/', 8) > 0 ? _u.substring(0, _u.indexOf('/', 8)) : _u, ''));
                 });
                 return x;
             };
