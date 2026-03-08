@@ -305,12 +305,12 @@ struct PressReaderWebView: UIViewRepresentable {
         private func fetchLastEditionViaAPI(bearerToken: String, cid: String) {
             guard let encoded = cid.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed)?
                           .replacingOccurrences(of: "/", with: "%2F"),
-                  let url = URL(string: "https://ingress.pressreader.com/services/catalog/issues?cid=\(encoded)&count=90")
+                  let url = URL(string: "https://ingress.pressreader.com/services/catalog/issues?cid=\(encoded)&count=7")
             else { loadFallbackDate(); return }
             var request = URLRequest(url: url, timeoutInterval: 10)
             request.setValue("Bearer \(bearerToken)", forHTTPHeaderField: "Authorization")
             request.setValue("application/json", forHTTPHeaderField: "Accept")
-            print("BAVL catalog/issues fetch count=90")
+            print("BAVL catalog/issues fetch count=7")
 
             URLSession.shared.dataTask(with: request) { [weak self] data, resp, error in
                 guard let self = self else { return }
