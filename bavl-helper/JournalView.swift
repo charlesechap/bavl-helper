@@ -11,6 +11,7 @@ struct ArticleMeta: Identifiable {
     let shortContent: String?
     let sectionName: String?
     let pageNumber: Int?
+    let thumbnailURL: URL?
 
     static func parse(from json: [String: Any]) -> ArticleMeta? {
         guard let rawId = json["id"],
@@ -29,10 +30,21 @@ struct ArticleMeta: Identifiable {
         let sectionName = ((json["issue"] as? [String: Any])?["sectionName"] as? String)?.fixedEncoding
         let pageNumber = ((json["issue"] as? [String: Any])?["page"] as? [String: Any])?["number"] as? Int
 
+        let thumbURL: URL?
+        if let pics = json["pictures"] as? [[String: Any]],
+           let first = pics.first,
+           let rk = first["RegionKey"] as? String ?? first["regionKey"] as? String,
+           !rk.isEmpty {
+            thumbURL = URL(string: "https://i.prcdn.co/img?regionKey=\(rk)&width=120")
+        } else {
+            thumbURL = nil
+        }
+
         return ArticleMeta(
             id: id, title: title, subtitle: subtitle,
             author: author, shortContent: shortContent,
-            sectionName: sectionName, pageNumber: pageNumber
+            sectionName: sectionName, pageNumber: pageNumber,
+            thumbnailURL: thumbURL
         )
     }
 }
@@ -70,7 +82,7 @@ class JournalViewModel: ObservableObject {
         fetchMetadata(ids: ids)
     }
 
-    // MARK: - Fetch metadata légère (articleFields=3911)
+    // MARK: - Fetch metadata légère (articleFields=3927)
     private func fetchMetadata(ids: [Int64]) {
         // PressReader limite à ~20 ids par requête — on batch
         let batchSize = 20
@@ -84,7 +96,7 @@ class JournalViewModel: ObservableObject {
         for batch in batches {
             group.enter()
             let idsStr = batch.map { String($0) }.joined(separator: "%2C")
-            guard let url = URL(string: "https://ingress.pressreader.com/services/v1/articles/?ids=\(idsStr)&articleFields=3911&isHyphenated=false") else {
+            guard let url = URL(string: "https://ingress.pressreader.com/services/v1/articles/?ids=\(idsStr)&articleFields=3927&isHyphenated=false") else {
                 group.leave(); continue
             }
             var req = URLRequest(url: url, timeoutInterval: 15)
@@ -273,6 +285,21 @@ struct JournalView: View {
                     ProgressView()
                         .scaleEffect(0.7)
                         .tint(dimColor)
+                } else if let thumbURL = article.thumbnailURL {
+                    AsyncImage(url: thumbURL) { phase in
+                        switch phase {
+                        case .success(let img):
+                            img.resizable()
+                                .aspectRatio(contentMode: .fill)
+                                .frame(width: 72, height: 72)
+                                .clipped()
+                                .cornerRadius(4)
+                        default:
+                            Color(white: 0.18)
+                                .frame(width: 72, height: 72)
+                                .cornerRadius(4)
+                        }
+                    }
                 } else if let p = article.pageNumber {
                     Text("p.\(p)")
                         .font(.system(.caption2, design: .monospaced))
