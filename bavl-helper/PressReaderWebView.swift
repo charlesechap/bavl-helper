@@ -232,11 +232,7 @@ struct PressReaderWebView: UIViewRepresentable {
                 let cid   = dict["cid"]   ?? ""
                 print("BAVL authInfo: token.count=\(token.count) cid=\(cid)")
                 if token.isEmpty { loadFallbackDate(); return }
-                // Navigation vers dernière édition (une seule fois)
-                if !lastEditionLoaded {
-                    lastEditionLoaded = true
-                    fetchLastEditionViaAPI(bearerToken: token, cid: cid)
-                }
+                // Navigation et éditions gérées via shortCid (intercepteur __routes)
 
 
             case "calendarRaw":
@@ -249,6 +245,15 @@ struct PressReaderWebView: UIViewRepresentable {
                         print("BAVL shortCid:", shortCid)
                         if !calendarLoaded {
                             fetchEditionsFromCatalog(shortCid: shortCid)
+                        }
+                    }
+                    // Aussi stocker pour navigation si pas encore chargé
+                    if !lastEditionLoaded {
+                        lastEditionLoaded = true
+                        if let data = jsonStr.data(using: .utf8),
+                           let dict = try? JSONSerialization.jsonObject(with: data) as? [String: String],
+                           let shortCid = dict["cid"] {
+                            navigateViaCalendar(shortCid: shortCid)
                         }
                     }
                 } else if body.hasPrefix("__calendar:") {
@@ -297,8 +302,10 @@ struct PressReaderWebView: UIViewRepresentable {
                     let status = (resp as? HTTPURLResponse)?.statusCode ?? 0
                     let raw = data.flatMap { String(data: $0, encoding: .utf8) } ?? ""
                     print("BAVL calendar shortCid status=\(status) body(300):", String(raw.prefix(300)))
-                    if status == 200 && self.parseCalendarAndEmit(body: raw) {
-                        self.calendarLoaded = true
+                    if status == 200 {
+                        if self.parseCalendarAndEmit(body: raw) {
+                            self.calendarLoaded = true
+                        }
                     }
                 }.resume()
             }
@@ -373,6 +380,56 @@ struct PressReaderWebView: UIViewRepresentable {
             print("BAVL pubv2 root keys:", Array(root.keys))
         }
 
+
+        /// Navigue vers la dernière édition disponible via calendar/get
+        private func navigateViaCalendar(shortCid: String) {
+            guard let url = URL(string: "https://ingress.pressreader.com/services/calendar/get?cid=\(shortCid)")
+            else { loadFallbackDate(); return }
+            webView?.evaluateJavaScript("window.preset && window.preset.bearerToken ? window.preset.bearerToken : ''") { [weak self] result, _ in
+                guard let self = self, let token = result as? String, !token.isEmpty else {
+                    self?.loadFallbackDate(); return
+                }
+                var req = URLRequest(url: url, timeoutInterval: 10)
+                req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+                req.setValue("application/json", forHTTPHeaderField: "Accept")
+                URLSession.shared.dataTask(with: req) { [weak self] data, resp, _ in
+                    guard let self = self else { return }
+                    let status = (resp as? HTTPURLResponse)?.statusCode ?? 0
+                    guard status == 200, let data = data,
+                          let raw = String(data: data, encoding: .utf8)
+                    else { self.loadFallbackDate(); return }
+                    // Extraire la date la plus récente avec P:1
+                    if let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                       let years = root["Years"] as? [String: Any] {
+                        var latest = ""
+                        for (yearStr, monthsAny) in years {
+                            guard let months = monthsAny as? [String: Any] else { continue }
+                            for (monthStr, daysAny) in months {
+                                guard let days = daysAny as? [String: Any] else { continue }
+                                for (dayStr, infoAny) in days {
+                                    guard let info = infoAny as? [String: Any] else { continue }
+                                    let p: Bool
+                                    if let b = info["P"] as? Bool { p = b }
+                                    else if let n = info["P"] as? Int { p = n != 0 }
+                                    else if let n = info["P"] as? NSNumber { p = n.boolValue }
+                                    else { continue }
+                                    if p, let y = Int(yearStr), let m = Int(monthStr), let d = Int(dayStr) {
+                                        let dateStr = String(format: "%04d%02d%02d", y, m, d)
+                                        if dateStr > latest { latest = dateStr }
+                                    }
+                                }
+                            }
+                        }
+                        if !latest.isEmpty {
+                            self.navigateToTextView(date: latest)
+                            return
+                        }
+                    }
+                    self.loadFallbackDate()
+                }.resume()
+            }
+        }
+
         // MARK: - Calendar API (liste des éditions disponibles)
 
         /// Parse un body JSON calendar/get et émet les éditions si non vides.
@@ -412,6 +469,11 @@ struct PressReaderWebView: UIViewRepresentable {
             guard !sorted.isEmpty else { return false }
             calendarLoaded = true
             DispatchQueue.main.async { self.onEditionsLoaded?(sorted) }
+            // Naviguer vers la dernière édition disponible si pas encore fait
+            if !lastEditionLoaded, let latest = sorted.first {
+                lastEditionLoaded = true
+                navigateToTextView(date: latest.date)
+            }
             return true
         }
 
