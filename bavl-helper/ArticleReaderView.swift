@@ -75,7 +75,7 @@ struct ArticleReaderView: View {
         GeometryReader { geo in
             let safeTop = geo.safeAreaInsets.top
             ZStack(alignment: .top) {
-                Color.bg.ignoresSafeArea()
+                Color(red: 0.13, green: 0.13, blue: 0.13).ignoresSafeArea()
 
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 0) {
@@ -232,7 +232,7 @@ struct ArticleReaderView: View {
                 .padding(.trailing, 8)
             }
             .frame(height: 44)
-            .background(Color.bg)
+            .background(Color(red: 0.13, green: 0.13, blue: 0.13))
             Divider().overlay(Color(white: 0.20))
         }
         .padding(.top, safeTop)
