@@ -308,7 +308,17 @@ struct PressReaderWebView: UIViewRepresentable {
                     print("ARTICLE error status=\(status)"); return
                 }
                 print("ARTICLE status=\(status) len=\(raw.count)")
-                print("ARTICLE JSON:", String(raw.prefix(3000)))
+                // Logger les clés top-level et chercher le contenu
+                if let d = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                    print("ARTICLE keys:", d.keys.sorted())
+                    // Chercher body/paragraphs/content
+                    for key in ["body", "paragraphs", "content", "fullBody", "text", "bodyHtml"] {
+                        if let val = d[key] {
+                            let s = "\(val)"
+                            print("ARTICLE \(key):", String(s.prefix(2000)))
+                        }
+                    }
+                }
             }.resume()
         }
 
