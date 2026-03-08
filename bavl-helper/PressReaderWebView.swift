@@ -231,6 +231,18 @@ struct PressReaderWebView: UIViewRepresentable {
             webView.evaluateJavaScript(PressReaderWebView.injectedJS) { _, err in
                 if let err = err { print("BAVL JS error:", err) }
             }
+            // Debug: si URL article ({date}/{id}), fetch contenu via Swift
+            let urlParts = url.split(separator: "/").map(String.init)
+            if let articleId = urlParts.last,
+               articleId.count >= 12, articleId.allSatisfy({ $0.isNumber }),
+               !articleDebugDone {
+                articleDebugDone = true
+                webView.evaluateJavaScript("window.preset?.bearerToken ?? ''") { [weak self] result, _ in
+                    guard let self, let token = result as? String, !token.isEmpty else { return }
+                    self.fetchArticleDebug(articleId: articleId, bearerToken: token)
+                }
+            }
+
             if url.contains("pressreader.com") {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
                     self?.fetchTOCIfNeeded()
@@ -251,17 +263,6 @@ struct PressReaderWebView: UIViewRepresentable {
                 let cid   = dict["cid"]   ?? ""
                 print("BAVL authInfo: token.count=\(token.count) cid=\(cid)")
                 if token.isEmpty { loadFallbackDate(); return }
-
-                // Debug: si URL article (/{path}/{date}/{articleId}), fetch contenu
-                if let urlStr = webView?.url?.absoluteString {
-                    let parts = urlStr.split(separator: "/").map(String.init).filter { !$0.isEmpty }
-                    if let last = parts.last,
-                       last.count >= 12, last.allSatisfy({ $0.isNumber }),
-                       !articleDebugDone {
-                        articleDebugDone = true
-                        fetchArticleDebug(articleId: last, bearerToken: token)
-                    }
-                }
 
 
             case "calendarRaw":
