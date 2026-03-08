@@ -6,12 +6,20 @@ struct ArticleParagraph: Identifiable {
     let id = UUID()
     let text: String
     let style: ParagraphStyle
+    let imageURL: URL?    // non-nil quand style == .image
+
+    init(text: String, style: ParagraphStyle, imageURL: URL? = nil) {
+        self.text = text
+        self.style = style
+        self.imageURL = imageURL
+    }
 
     enum ParagraphStyle {
         case body
         case heading    // style = 2
         case subheading // style = 3 (si existe)
         case caption    // style = 4 (si existe)
+        case image      // type = "photo" avec regionKey
     }
 }
 
@@ -40,6 +48,16 @@ struct ArticleContent: Identifiable {
         var paragraphs: [ArticleParagraph] = []
         if let rawParagraphs = json["paragraphs"] as? [[String: Any]] {
             for p in rawParagraphs {
+                let pType = p["type"] as? String ?? "text"
+                // Image (type = "photo")
+                if pType == "photo" {
+                    if let regionKey = p["regionKey"] as? String, !regionKey.isEmpty,
+                       let imgURL = URL(string: "https://i.prcdn.co/img?regionKey=\(regionKey)&width=600") {
+                        let caption = (p["text"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? ""
+                        paragraphs.append(ArticleParagraph(text: caption, style: .image, imageURL: imgURL))
+                    }
+                    continue
+                }
                 guard let raw = p["text"] as? String else { continue }
                 // Nettoyer soft-hyphens et tirets conditionnels
                 let clean = raw
@@ -179,6 +197,35 @@ struct ArticleReaderView: View {
                 .foregroundStyle(Color(white: 0.40))
                 .italic()
                 .fixedSize(horizontal: false, vertical: true)
+        case .image:
+            VStack(alignment: .leading, spacing: 6) {
+                if let url = para.imageURL {
+                    AsyncImage(url: url) { phase in
+                        switch phase {
+                        case .success(let img):
+                            img.resizable()
+                                .aspectRatio(contentMode: .fill)
+                                .frame(maxWidth: .infinity)
+                                .clipped()
+                        case .failure:
+                            EmptyView()
+                        default:
+                            Rectangle()
+                                .fill(Color(white: 0.18))
+                                .frame(maxWidth: .infinity, minHeight: 160)
+                        }
+                    }
+                }
+                if !para.text.isEmpty {
+                    Text(para.text)
+                        .font(.system(size: 11))
+                        .foregroundStyle(Color(white: 0.38))
+                        .italic()
+                        .padding(.horizontal, 20)
+                }
+            }
+            .padding(.horizontal, -20)  // annuler le padding parent pour aller pleine largeur
+            .padding(.bottom, 12)
         case .body:
             Text(para.text)
                 .font(.system(size: 16))
