@@ -15,7 +15,7 @@ struct ArticleParagraph: Identifiable {
     }
 }
 
-struct ArticleContent {
+struct ArticleContent: Identifiable {
     let id: Int64
     let title: String
     let subtitle: String?
