@@ -163,6 +163,7 @@ struct PressReaderWebView: UIViewRepresentable {
         var onEditionsLoaded: (([PressReaderEdition]) -> Void)?
         private var urlObservation: NSKeyValueObservation?
         private var calendarLoaded = false
+        private var lastEditionLoaded = false
 
         func startObservingURL(_ wv: WKWebView) {
             urlObservation = wv.observe(\.url, options: [.new]) { [weak self] webView, _ in
@@ -207,12 +208,17 @@ struct PressReaderWebView: UIViewRepresentable {
                 let cid   = dict["cid"]   ?? ""
                 print("BAVL authInfo: token.count=\(token.count) cid=\(cid)")
                 if token.isEmpty { loadFallbackDate(); return }
-                // Charger le calendrier des éditions disponibles (une seule fois)
+                // Calendrier local (API Years vide pour tokens institutionnels)
                 if !calendarLoaded {
                     calendarLoaded = true
-                    fetchCalendar(bearerToken: token, cid: cid)
+                    let localEditions = buildLocalEditions()
+                    DispatchQueue.main.async { self.onEditionsLoaded?(localEditions) }
                 }
-                fetchLastEditionViaAPI(bearerToken: token, cid: cid)
+                // Navigation vers dernière édition (une seule fois)
+                if !lastEditionLoaded {
+                    lastEditionLoaded = true
+                    fetchLastEditionViaAPI(bearerToken: token, cid: cid)
+                }
 
             // Rétro-compatibilité si bearerToken est encore émis
             case "bearerToken":
@@ -227,6 +233,28 @@ struct PressReaderWebView: UIViewRepresentable {
             default:
                 break
             }
+        }
+
+
+        // MARK: - Éditions locales (lun–sam, 90 derniers jours)
+
+        private func buildLocalEditions() -> [PressReaderEdition] {
+            var cal = Calendar(identifier: .gregorian)
+            cal.timeZone = TimeZone(identifier: "Europe/Zurich")!
+            let fmt = DateFormatter()
+            fmt.dateFormat = "yyyyMMdd"
+            fmt.timeZone = TimeZone(identifier: "Europe/Zurich")
+            var editions: [PressReaderEdition] = []
+            var date = Date()
+            for _ in 0..<120 {   // 120 jours pour couvrir ~90 lun-sam
+                let weekday = cal.component(.weekday, from: date)
+                if weekday != 1 {  // exclure dimanche
+                    editions.append(PressReaderEdition(date: fmt.string(from: date), issueId: 0))
+                }
+                date = cal.date(byAdding: .day, value: -1, to: date)!
+                if editions.count == 90 { break }
+            }
+            return editions
         }
 
         // MARK: - Calendar API (liste des éditions disponibles)
