@@ -31,11 +31,11 @@ struct ArticleMeta: Identifiable {
         let pageNumber = ((json["issue"] as? [String: Any])?["page"] as? [String: Any])?["number"] as? Int
 
         let thumbURL: URL?
-        if let pics = json["pictures"] as? [[String: Any]],
-           let first = pics.first,
-           let rk = first["RegionKey"] as? String ?? first["regionKey"] as? String,
-           !rk.isEmpty {
-            thumbURL = URL(string: "https://i.prcdn.co/img?regionKey=\(rk)&width=120")
+        if let imgs = json["images"] as? [[String: Any]],
+           let first = imgs.first,
+           let rk = first["id"] as? String, !rk.isEmpty,
+           let encoded = rk.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) {
+            thumbURL = URL(string: "https://i.prcdn.co/img?regionKey=\(encoded)&width=120")
         } else {
             thumbURL = nil
         }
@@ -120,10 +120,7 @@ class JournalViewModel: ObservableObject {
                     }
                 }
                 let parsed = items.compactMap { ArticleMeta.parse(from: $0) }
-                if let first = items.first, let imgs = first["images"] {
-            print("JOURNAL images sample=\(String(describing: imgs).prefix(300))")
-        }
-        print("JOURNAL meta items=\(items.count) parsed=\(parsed.count) thumbs=\(parsed.filter{$0.thumbnailURL != nil}.count)")
+                print("JOURNAL meta items=\(items.count) parsed=\(parsed.count) thumbs=\(parsed.filter{$0.thumbnailURL != nil}.count)")
                 DispatchQueue.main.async { allMeta.append(contentsOf: parsed) }
             }.resume()
         }
