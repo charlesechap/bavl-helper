@@ -234,15 +234,7 @@ struct PressReaderWebView: UIViewRepresentable {
                     lastEditionLoaded = true
                     fetchLastEditionViaAPI(bearerToken: token, cid: cid)
                 }
-                // Éditions: attend calendarRaw depuis fetch interceptor (3s), sinon fallback
-                if !calendarLoaded {
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) { [weak self] in
-                        guard let self = self, !self.calendarLoaded else { return }
-                        print("BAVL calendar: timeout interceptor, fallback itératif")
-                        self.calendarLoaded = true
-                        self.fetchEditionsIterative(bearerToken: token, cid: cid)
-                    }
-                }
+
 
             case "calendarRaw":
                 guard !calendarLoaded else { return }
@@ -265,27 +257,6 @@ struct PressReaderWebView: UIViewRepresentable {
             }
         }
 
-
-        // MARK: - Éditions locales (lun–sam, 90 derniers jours)
-
-        private func buildLocalEditions() -> [PressReaderEdition] {
-            var cal = Calendar(identifier: .gregorian)
-            cal.timeZone = TimeZone(identifier: "Europe/Zurich")!
-            let fmt = DateFormatter()
-            fmt.dateFormat = "yyyyMMdd"
-            fmt.timeZone = TimeZone(identifier: "Europe/Zurich")
-            var editions: [PressReaderEdition] = []
-            var date = Date()
-            for _ in 0..<120 {   // 120 jours pour couvrir ~90 lun-sam
-                let weekday = cal.component(.weekday, from: date)
-                if weekday != 1 {  // exclure dimanche
-                    editions.append(PressReaderEdition(date: fmt.string(from: date), issueId: 0))
-                }
-                date = cal.date(byAdding: .day, value: -1, to: date)!
-                if editions.count == 90 { break }
-            }
-            return editions
-        }
 
         // MARK: - Calendar API (liste des éditions disponibles)
 
@@ -329,104 +300,59 @@ struct PressReaderWebView: UIViewRepresentable {
             return true
         }
 
-        /// Fallback: itère jour par jour (catalog/v2/publications/{cid}/issues/{date})
-        /// pour construire la liste des 30 dernières éditions disponibles.
-        private func fetchEditionsIterative(bearerToken: String, cid: String) {
-            guard let encoded = cid.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) else { return }
-            let base = "https://ingress.pressreader.com/services/catalog/v2/publications/\(encoded)/issues/"
-
-            var cal = Calendar(identifier: .gregorian)
-            cal.timeZone = TimeZone(identifier: "Europe/Zurich")!
-            let fmt = DateFormatter()
-            fmt.dateFormat = "yyyy-MM-dd"
-            fmt.timeZone = TimeZone(identifier: "Europe/Zurich")
-            let fmtOut = DateFormatter()
-            fmtOut.dateFormat = "yyyyMMdd"
-            fmtOut.timeZone = TimeZone(identifier: "Europe/Zurich")
-
-            // Génère les 90 derniers jours
-            var dates: [String] = []
-            var d = Date()
-            for _ in 0..<90 {
-                dates.append(fmt.string(from: d))
-                d = cal.date(byAdding: .day, value: -1, to: d)!
-            }
-
-            var editions: [PressReaderEdition] = []
-            let group = DispatchGroup()
-            let lock = NSLock()
-            var remaining = dates.count
-
-            // Limite concurrence à 10 appels simultanés
-            let semaphore = DispatchSemaphore(value: 10)
-
-            DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-                guard let self = self else { return }
-                for dateStr in dates {
-                    semaphore.wait()
-                    // Arrêter si on a déjà 30 éditions
-                    lock.lock()
-                    let count = editions.count
-                    lock.unlock()
-                    if count >= 30 { semaphore.signal(); remaining -= 1; continue }
-
-                    guard let url = URL(string: "\(base)\(dateStr)") else {
-                        semaphore.signal(); remaining -= 1; continue
-                    }
-                    var req = URLRequest(url: url, timeoutInterval: 8)
-                    req.setValue("Bearer \(bearerToken)", forHTTPHeaderField: "Authorization")
-                    req.setValue("application/json", forHTTPHeaderField: "Accept")
-
-                    group.enter()
-                    let isFirst = dateStr == dates[0]
-                    URLSession.shared.dataTask(with: req) { data, resp, err in
-                        defer { semaphore.signal(); group.leave() }
-                        let status = (resp as? HTTPURLResponse)?.statusCode ?? 0
-                        if isFirst {
-                            let body = data.flatMap { String(data: $0, encoding: .utf8) } ?? "nil"
-                            print("BAVL iterative[\(dateStr)] status=\(status) err=\(err?.localizedDescription ?? "nil") body(200):", String(body.prefix(200)))
-                        }
-                        guard status == 200, let data = data,
-                              let parsed = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                              let issueDateRaw = parsed["issueDate"] as? String
-                        else { return }
-                        // issueDate format: "2026-03-07T00:00:00" ou "2026-03-07"
-                        let yyyyMMdd = issueDateRaw.replacingOccurrences(of: "-", with: "").prefix(8)
-                        let issueId: Int
-                        if let n = parsed["id"] as? Int { issueId = n }
-                        else if let n = parsed["Id"] as? Int { issueId = n }
-                        else { issueId = 0 }
-                        lock.lock()
-                        editions.append(PressReaderEdition(date: String(yyyyMMdd), issueId: issueId))
-                        lock.unlock()
-                    }.resume()
-                }
-                group.notify(queue: .main) { [weak self] in
-                    guard let self = self else { return }
-                    let sorted = editions.sorted { $0.date > $1.date }
-                    print("BAVL iterative: \(sorted.count) éditions trouvées")
-                    self.onEditionsLoaded?(sorted)
-                }
-            }
-        }
-
         // MARK: - API (dernière édition)
 
         private func fetchLastEditionViaAPI(bearerToken: String, cid: String) {
             guard let encoded = cid.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
-                  let url = URL(string: "https://ingress.pressreader.com/services/catalog/issues?cid=\(encoded)&count=3")
+                  let url = URL(string: "https://ingress.pressreader.com/services/catalog/issues?cid=\(encoded)&count=90")
             else { loadFallbackDate(); return }
             var request = URLRequest(url: url, timeoutInterval: 10)
             request.setValue("Bearer \(bearerToken)", forHTTPHeaderField: "Authorization")
             request.setValue("application/json", forHTTPHeaderField: "Accept")
+            print("BAVL catalog/issues fetch count=90")
 
-            URLSession.shared.dataTask(with: request) { [weak self] data, _, error in
+            URLSession.shared.dataTask(with: request) { [weak self] data, resp, error in
                 guard let self = self else { return }
+                let status = (resp as? HTTPURLResponse)?.statusCode ?? 0
                 guard let data = data, error == nil else { self.loadFallbackDate(); return }
                 let raw = String(data: data, encoding: .utf8) ?? ""
+                print("BAVL catalog/issues status=\(status) body(300):", String(raw.prefix(300)))
+
+                // Extraire toutes les éditions pour le dropdown
+                if !self.calendarLoaded,
+                   let parsed = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                   let issues = parsed["Issues"] as? [[String: Any]], !issues.isEmpty {
+                    var editions: [PressReaderEdition] = []
+                    let datePattern = try? NSRegularExpression(pattern: "[^0-9]([0-9]{8})[^0-9]")
+                    for issue in issues {
+                        // Extraire issueId
+                        let issueId = issue["Issue"] as? String ?? ""
+                        // Extraire date depuis les champs de l'issue
+                        let issueJson = (try? JSONSerialization.data(withJSONObject: issue))
+                            .flatMap { String(data: $0, encoding: .utf8) } ?? ""
+                        let padded = " \(issueJson) "
+                        var dates: [String] = []
+                        datePattern?.enumerateMatches(in: padded, range: NSRange(padded.startIndex..., in: padded)) { m, _, _ in
+                            guard let m = m, let r = Range(m.range(at: 1), in: padded) else { return }
+                            let d = String(padded[r])
+                            if d >= "20200101" && d <= "20301231" { dates.append(d) }
+                        }
+                        if let dateStr = dates.sorted().last {
+                            editions.append(PressReaderEdition(date: dateStr, issueId: 0))
+                        }
+                    }
+                    let sorted = editions.sorted { $0.date > $1.date }
+                    print("BAVL catalog/issues: \(sorted.count) éditions parsées")
+                    if !sorted.isEmpty {
+                        self.calendarLoaded = true
+                        DispatchQueue.main.async { self.onEditionsLoaded?(sorted) }
+                    }
+                }
+
+                // Naviguer vers le dernier issue + charger TOC
                 if let parsed = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                    let issues = parsed["Issues"] as? [[String: Any]],
-                   let first  = issues.first,
+                   let first = issues.first,
                    let issueId = first["Issue"] as? String, !issueId.isEmpty {
                     self.currentIssueId = issueId
                     self.loadTOC(issueId: issueId)
