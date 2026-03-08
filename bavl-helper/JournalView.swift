@@ -95,8 +95,7 @@ class JournalViewModel: ObservableObject {
                 let status = (resp as? HTTPURLResponse)?.statusCode ?? 0
                 guard let data else { print("JOURNAL meta no data"); return }
                 // Logger les 200 premiers chars pour voir la structure
-                let preview = String(data.prefix(200).map { Character(Unicode.Scalar($0)) })
-                print("JOURNAL meta status=\(status) preview=\(preview)")
+                print("JOURNAL meta status=\(status) len=\(data.count)")
                 // Essayer dict {Items:[]} ou array directement []
                 var items: [[String: Any]] = []
                 if let obj = try? JSONSerialization.jsonObject(with: data) {
@@ -115,8 +114,10 @@ class JournalViewModel: ObservableObject {
 
         group.notify(queue: .main) { [weak self] in
             guard let self else { return }
-            // Trier par pageNumber pour respecter l'ordre du journal
-            let sorted = allMeta.sorted { ($0.pageNumber ?? 999) < ($1.pageNumber ?? 999) }
+            var seen = Set<Int64>()
+            let unique = allMeta.filter { seen.insert($0.id).inserted }
+            print("JOURNAL ready: \(unique.count) articles")
+            let sorted = unique.sorted { ($0.pageNumber ?? 999) < ($1.pageNumber ?? 999) }
             self.sections = self.groupBySections(sorted)
             self.state = .ready
         }
