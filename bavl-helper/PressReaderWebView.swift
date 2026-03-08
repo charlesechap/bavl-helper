@@ -212,6 +212,7 @@ struct PressReaderWebView: UIViewRepresentable {
         private var urlObservation: NSKeyValueObservation?
         private var calendarLoaded = false
         private var shortCid: String = ""
+        private var lastBearerToken: String = ""
         private var lastFetchedArticleId: String = ""
         private var lastEditionLoaded = false
 
@@ -275,6 +276,7 @@ struct PressReaderWebView: UIViewRepresentable {
                 print("BAVL authInfo: token.count=\(token.count) cid=\(cid)")
                 if token.isEmpty { loadFallbackDate(); return }
                 // Mode zero-webview : notifier dès que le token est prêt
+                self.lastBearerToken = token
                 self.onBearerReady?(token, self.pressReaderPath)
                 let slug = cid.components(separatedBy: "/").last ?? cid
                 self.resolveShortCid(slug: slug, token: token)
@@ -286,7 +288,7 @@ struct PressReaderWebView: UIViewRepresentable {
                 guard let routeData = jsonStr.data(using: .utf8),
                       let dict = try? JSONSerialization.jsonObject(with: routeData) as? [String: String],
                       let shortCid = dict["cid"], !shortCid.isEmpty else { return }
-                fetchCalendar(shortCid: shortCid)
+                fetchCalendar(shortCid: shortCid, token: lastBearerToken)
             case "bearerToken":
                 let token = message.body as? String ?? ""
                 if token.isEmpty { loadFallbackDate() }
