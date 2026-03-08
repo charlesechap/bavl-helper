@@ -388,7 +388,8 @@ struct PressReaderWebView: UIViewRepresentable {
                 else { print("BAVL resolveShortCid fail status=\(status)"); return }
                 let keys = Array(root.keys).sorted()
                 let shortCid = (root["cid"] as? String) ?? (root["Cid"] as? String) ?? (root["id"] as? String)
-                print("BAVL resolveShortCid keys=\(keys) shortCid=\(shortCid ?? \"nil\")")
+                let scLog = shortCid ?? "nil"
+                print("BAVL resolveShortCid keys=\(keys) shortCid=\(scLog)")
                 guard let shortCid, !shortCid.isEmpty else { return }
                 self.fetchCalendar(shortCid: shortCid)
             }.resume()
