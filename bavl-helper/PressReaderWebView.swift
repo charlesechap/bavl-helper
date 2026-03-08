@@ -138,6 +138,27 @@ struct PressReaderWebView: UIViewRepresentable {
             };
         }
 
+        // DEBUG réseau: logger fetch+XHR sur /textview
+        if (path.indexOf('/textview') !== -1) {
+            var __df = window.fetch;
+            window.fetch = function(input, init) {
+                var url = typeof input === 'string' ? input : (input && input.url || '');
+                return __df(input, init).then(function(r) {
+                    window.webkit.messageHandlers.networkLog.postMessage('F ' + r.status + ' ' + url.replace(/https?:\/\/[^\/]+/, ''));
+                    return r;
+                });
+            };
+            var __XHR = window.XMLHttpRequest;
+            window.XMLHttpRequest = function() {
+                var x = new __XHR(), _u = '';
+                x.open = function(m, u) { _u = u; __XHR.prototype.open.call(x, m, u); };
+                x.addEventListener('load', function() {
+                    window.webkit.messageHandlers.networkLog.postMessage('X ' + x.status + ' ' + _u.replace(/https?:\/\/[^\/]+/, ''));
+                });
+                return x;
+            };
+        }
+
         // 5. Sur /textview : titre
         if (path.indexOf('/textview') !== -1) {
             function sendTitle() {
@@ -157,7 +178,7 @@ struct PressReaderWebView: UIViewRepresentable {
     func makeUIView(context: Context) -> WKWebView {
         let config = WKWebViewConfiguration()
         config.websiteDataStore = .default()
-        for name in ["authInfo", "bearerToken", "pageBlank", "pageTitle", "calendarRaw"] {
+        for name in ["authInfo", "bearerToken", "pageBlank", "pageTitle", "calendarRaw", "networkLog"] {
             config.userContentController.add(context.coordinator, name: name)
         }
         let wv = WKWebView(frame: .zero, configuration: config)
@@ -245,6 +266,9 @@ struct PressReaderWebView: UIViewRepresentable {
             case "pageTitle":
                 let title = message.body as? String ?? ""
                 DispatchQueue.main.async { self.onTitleChange?(title) }
+
+            case "networkLog":
+                if let msg = message.body as? String { print("NET:", msg) }
 
             default:
                 break
@@ -771,7 +795,7 @@ private struct _PressReaderWebViewBridge: UIViewRepresentable {
     func makeUIView(context: Context) -> WKWebView {
         let config = WKWebViewConfiguration()
         config.websiteDataStore = .default()
-        for name in ["authInfo", "bearerToken", "pageBlank", "pageTitle", "calendarRaw"] {
+        for name in ["authInfo", "bearerToken", "pageBlank", "pageTitle", "calendarRaw", "networkLog"] {
             config.userContentController.add(context.coordinator, name: name)
         }
         let wv = WKWebView(frame: .zero, configuration: config)
