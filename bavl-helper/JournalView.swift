@@ -56,11 +56,13 @@ class JournalViewModel: ObservableObject {
     private var pressReaderPath: String = ""
 
     func onBearerReady(token: String, path: String) {
+        print("JOURNAL onBearerReady token.count=\(token.count)")
         bearerToken = token
         pressReaderPath = path
     }
 
     func onTOCLoaded(ids: [Int64], issueId: String) {
+        print("JOURNAL onTOCLoaded ids=\(ids.count) token.count=\(bearerToken.count)")
         guard !ids.isEmpty else { return }
         currentIssueId = issueId
         state = .loading
@@ -77,6 +79,7 @@ class JournalViewModel: ObservableObject {
         var allMeta: [ArticleMeta] = []
         let group = DispatchGroup()
 
+        print("JOURNAL fetchMetadata batches=\(batches.count) token.isEmpty=\(bearerToken.isEmpty)")
         for batch in batches {
             group.enter()
             let idsStr = batch.map { String($0) }.joined(separator: "%2C")
@@ -87,13 +90,16 @@ class JournalViewModel: ObservableObject {
             req.setValue("Bearer \(bearerToken)", forHTTPHeaderField: "Authorization")
             req.setValue("application/json", forHTTPHeaderField: "Accept")
 
-            URLSession.shared.dataTask(with: req) { data, _, _ in
+            URLSession.shared.dataTask(with: req) { data, resp, _ in
                 defer { group.leave() }
+                let status = (resp as? HTTPURLResponse)?.statusCode ?? 0
                 guard let data,
-                      let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                      let items = root["Items"] as? [[String: Any]]
-                else { return }
+                      let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+                else { print("JOURNAL meta error status=\(status)"); return }
+                print("JOURNAL meta status=\(status) keys=\(root.keys.sorted())")
+                let items = (root["Items"] as? [[String: Any]]) ?? (root["items"] as? [[String: Any]]) ?? []
                 let parsed = items.compactMap { ArticleMeta.parse(from: $0) }
+                print("JOURNAL meta parsed=\(parsed.count)")
                 DispatchQueue.main.async { allMeta.append(contentsOf: parsed) }
             }.resume()
         }
