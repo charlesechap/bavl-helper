@@ -276,6 +276,8 @@ struct PressReaderWebView: UIViewRepresentable {
                 if token.isEmpty { loadFallbackDate(); return }
                 // Mode zero-webview : notifier dès que le token est prêt
                 self.onBearerReady?(token, self.pressReaderPath)
+                let slug = cid.components(separatedBy: "/").last ?? cid
+                self.resolveShortCid(slug: slug, token: token)
 
 
             case "calendarRaw":
@@ -371,6 +373,27 @@ struct PressReaderWebView: UIViewRepresentable {
         /// Parse un body JSON calendar/get et émet les éditions si non vides.
         /// Retourne true si des éditions ont été trouvées.
         @discardableResult
+        private func resolveShortCid(slug: String, token: String) {
+            guard !calendarLoaded,
+                  let url = URL(string: "https://ingress.pressreader.com/services/catalog/v1/routes/publication?publication=\(slug)")
+            else { return }
+            var req = URLRequest(url: url, timeoutInterval: 10)
+            req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+            req.setValue("application/json", forHTTPHeaderField: "Accept")
+            print("BAVL resolveShortCid slug=\(slug)")
+            URLSession.shared.dataTask(with: req) { [weak self] data, resp, _ in
+                let status = (resp as? HTTPURLResponse)?.statusCode ?? 0
+                guard let self, let data,
+                      let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+                else { print("BAVL resolveShortCid fail status=\(status)"); return }
+                let keys = Array(root.keys).sorted()
+                let shortCid = (root["cid"] as? String) ?? (root["Cid"] as? String) ?? (root["id"] as? String)
+                print("BAVL resolveShortCid keys=\(keys) shortCid=\(shortCid ?? \"nil\")")
+                guard let shortCid, !shortCid.isEmpty else { return }
+                self.fetchCalendar(shortCid: shortCid)
+            }.resume()
+        }
+
         private func parseCalendarAndEmit(body: String) -> Bool {
             guard let data = body.data(using: .utf8),
                   let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
