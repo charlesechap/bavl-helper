@@ -120,10 +120,8 @@ class JournalViewModel: ObservableObject {
                     }
                 }
                 let parsed = items.compactMap { ArticleMeta.parse(from: $0) }
-                if let first = items.first {
-            let keys = Array(first.keys).sorted()
-            let hasPictures = first["pictures"] != nil
-            print("JOURNAL meta keys=\(keys) hasPictures=\(hasPictures)")
+                if let first = items.first, let imgs = first["images"] {
+            print("JOURNAL images sample=\(String(describing: imgs).prefix(300))")
         }
         print("JOURNAL meta items=\(items.count) parsed=\(parsed.count) thumbs=\(parsed.filter{$0.thumbnailURL != nil}.count)")
                 DispatchQueue.main.async { allMeta.append(contentsOf: parsed) }
