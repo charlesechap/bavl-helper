@@ -14,18 +14,19 @@ struct ArticleMeta: Identifiable {
 
     static func parse(from json: [String: Any]) -> ArticleMeta? {
         guard let rawId = json["id"],
-              let title = json["title"] as? String
+              let titleRaw = json["title"] as? String
         else { return nil }
         let id: Int64
         if let i = rawId as? Int64 { id = i }
         else if let i = rawId as? Int { id = Int64(i) }
         else if let d = rawId as? Double { id = Int64(d) }
         else { return nil }
+        let title = titleRaw.fixedEncoding
 
-        let subtitle = json["subtitle"] as? String
-        let author = json["author"] as? String
-        let shortContent = json["shortContent"] as? String
-        let sectionName = (json["issue"] as? [String: Any])?["sectionName"] as? String
+        let subtitle = (json["subtitle"] as? String)?.fixedEncoding
+        let author = (json["author"] as? String)?.fixedEncoding
+        let shortContent = (json["shortContent"] as? String)?.fixedEncoding
+        let sectionName = ((json["issue"] as? [String: Any])?["sectionName"] as? String)?.fixedEncoding
         let pageNumber = ((json["issue"] as? [String: Any])?["page"] as? [String: Any])?["number"] as? Int
 
         return ArticleMeta(
@@ -403,5 +404,17 @@ struct JournalView: View {
             Spacer()
         }
         .frame(maxWidth: .infinity)
+    }
+}
+
+// MARK: - Encoding fix
+private extension String {
+    /// Corrige le double-encoding UTF-8/Latin-1 fréquent dans l'API PressReader.
+    /// Ex: "Â«" (U+00C2 + U+00AB) → "«"
+    var fixedEncoding: String {
+        guard let latin1 = self.data(using: .isoLatin1),
+              let utf8 = String(data: latin1, encoding: .utf8)
+        else { return self }
+        return utf8
     }
 }
