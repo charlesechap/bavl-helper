@@ -143,15 +143,9 @@ struct PressReaderWebView: UIViewRepresentable {
             var __df = window.fetch;
             window.fetch = function(input, init) {
                 var url = typeof input === 'string' ? input : (input && input.url || '');
-                var isArticle = url.indexOf('/v1/articles/') !== -1 && url.indexOf('fullBody=true') !== -1 && url.indexOf('articleFields=8191') !== -1;
                 return __df(input, init).then(function(r) {
-                    var path = url.replace(url.indexOf('/', 8) > 0 ? url.substring(0, url.indexOf('/', 8)) : url, '');
-                    window.webkit.messageHandlers.networkLog.postMessage('F ' + r.status + ' ' + path);
-                    if (isArticle && r.status === 200) {
-                        r.clone().text().then(function(body) {
-                            window.webkit.messageHandlers.networkLog.postMessage('ARTICLE_JSON:' + body.substring(0, 2000));
-                        });
-                    }
+                    var p = url.replace(url.indexOf('/', 8) > 0 ? url.substring(0, url.indexOf('/', 8)) : url, '');
+                    window.webkit.messageHandlers.networkLog.postMessage('F ' + r.status + ' ' + p);
                     return r;
                 });
             };
@@ -211,6 +205,7 @@ struct PressReaderWebView: UIViewRepresentable {
         var onEditionsLoaded: (([PressReaderEdition]) -> Void)?
         private var urlObservation: NSKeyValueObservation?
         private var calendarLoaded = false
+        private var articleDebugDone = false
         private var lastEditionLoaded = false
 
         func startObservingURL(_ wv: WKWebView) {
@@ -257,6 +252,17 @@ struct PressReaderWebView: UIViewRepresentable {
                 print("BAVL authInfo: token.count=\(token.count) cid=\(cid)")
                 if token.isEmpty { loadFallbackDate(); return }
 
+                // Debug: si URL article (/{path}/{date}/{articleId}), fetch contenu
+                if let urlStr = webView?.url?.absoluteString {
+                    let parts = urlStr.split(separator: "/").map(String.init).filter { !$0.isEmpty }
+                    if let last = parts.last,
+                       last.count >= 12, last.allSatisfy({ $0.isNumber }),
+                       !articleDebugDone {
+                        articleDebugDone = true
+                        fetchArticleDebug(articleId: last, bearerToken: token)
+                    }
+                }
+
 
             case "calendarRaw":
                 guard let body = message.body as? String, body.hasPrefix("__routes:") else { return }
@@ -283,6 +289,26 @@ struct PressReaderWebView: UIViewRepresentable {
         }
 
 
+
+        // MARK: - Debug article API
+
+        /// Appel test: fetch v1/articles/{id}?articleFields=8191&fullBody=true et log JSON brut
+        func fetchArticleDebug(articleId: String, bearerToken: String) {
+            guard let url = URL(string: "https://ingress.pressreader.com/services/v1/articles/\(articleId)/?articleFields=8191&isHyphenated=true&fullBody=true")
+            else { return }
+            var req = URLRequest(url: url, timeoutInterval: 15)
+            req.setValue("Bearer \(bearerToken)", forHTTPHeaderField: "Authorization")
+            req.setValue("application/json", forHTTPHeaderField: "Accept")
+            print("ARTICLE fetch:", articleId)
+            URLSession.shared.dataTask(with: req) { data, resp, _ in
+                let status = (resp as? HTTPURLResponse)?.statusCode ?? 0
+                guard let data = data, let raw = String(data: data, encoding: .utf8) else {
+                    print("ARTICLE error status=\(status)"); return
+                }
+                print("ARTICLE status=\(status) len=\(raw.count)")
+                print("ARTICLE JSON:", String(raw.prefix(3000)))
+            }.resume()
+        }
 
         // MARK: - Éditions depuis catalog/v2 avec shortCid (ex: "f165")
 
