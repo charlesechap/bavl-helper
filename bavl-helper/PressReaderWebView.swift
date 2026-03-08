@@ -303,7 +303,8 @@ struct PressReaderWebView: UIViewRepresentable {
         // MARK: - API (dernière édition)
 
         private func fetchLastEditionViaAPI(bearerToken: String, cid: String) {
-            guard let encoded = cid.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
+            guard let encoded = cid.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed)?
+                          .replacingOccurrences(of: "/", with: "%2F"),
                   let url = URL(string: "https://ingress.pressreader.com/services/catalog/issues?cid=\(encoded)&count=90")
             else { loadFallbackDate(); return }
             var request = URLRequest(url: url, timeoutInterval: 10)
