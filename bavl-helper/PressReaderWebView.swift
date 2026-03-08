@@ -128,13 +128,13 @@ struct PressReaderWebView: UIViewRepresentable {
                 var url = (typeof input === 'string') ? input : (input && input.url ? input.url : '');
                 var isRoutes = url && url.indexOf('routes/publication') !== -1;
                 var isCalendar = url && url.indexOf('calendar/get') !== -1;
+                var isPubV2 = url && url.indexOf('catalog/v2/publications/') !== -1 && url.indexOf('/issues') === -1;
                 return _origFetch(input, init).then(function(response) {
-                    if (isRoutes || isCalendar) {
+                    if (isRoutes || isCalendar || isPubV2) {
                         var cloned = response.clone();
                         cloned.text().then(function(body) {
-                            window.webkit.messageHandlers.calendarRaw.postMessage(
-                                isCalendar ? body : '__routes:' + body
-                            );
+                            var tag = isCalendar ? '__calendar:' : isRoutes ? '__routes:' : '__pubv2:';
+                            window.webkit.messageHandlers.calendarRaw.postMessage(tag + body);
                         });
                     }
                     return response;
@@ -242,9 +242,8 @@ struct PressReaderWebView: UIViewRepresentable {
             case "calendarRaw":
                 let body = message.body as? String ?? ""
                 if body.hasPrefix("__routes:") {
-                    // {"cid":"f165","country":"switzerland","publication":"le-temps","prn":"cid:f165"}
-                    let json = String(body.dropFirst(9))
-                    if let data = json.data(using: .utf8),
+                    let jsonStr = String(body.dropFirst(9))
+                    if let data = jsonStr.data(using: .utf8),
                        let dict = try? JSONSerialization.jsonObject(with: data) as? [String: String],
                        let shortCid = dict["cid"], !shortCid.isEmpty {
                         print("BAVL shortCid:", shortCid)
@@ -252,10 +251,16 @@ struct PressReaderWebView: UIViewRepresentable {
                             fetchEditionsFromCatalog(shortCid: shortCid)
                         }
                     }
-                } else {
+                } else if body.hasPrefix("__calendar:") {
                     guard !calendarLoaded else { return }
-                    print("BAVL calendarRaw intercepté, body(300):", String(body.prefix(300)))
-                    parseCalendarAndEmit(body: body)
+                    let jsonStr = String(body.dropFirst(11))
+                    print("BAVL calendar intercepté, body(300):", String(jsonStr.prefix(300)))
+                    if parseCalendarAndEmit(body: jsonStr) { calendarLoaded = true }
+                } else if body.hasPrefix("__pubv2:") {
+                    guard !calendarLoaded else { return }
+                    let jsonStr = String(body.dropFirst(8))
+                    print("BAVL pubv2 intercepté, body(300):", String(jsonStr.prefix(300)))
+                    parseEditionsFromPubV2(body: jsonStr)
                 }
 
             // Rétro-compatibilité si bearerToken est encore émis
@@ -278,6 +283,25 @@ struct PressReaderWebView: UIViewRepresentable {
         // MARK: - Éditions depuis catalog/v2 avec shortCid (ex: "f165")
 
         private func fetchEditionsFromCatalog(shortCid: String) {
+            // Essayer calendar/get avec shortCid (f165) — fonctionnait peut-être avec ce format
+            guard let calUrl = URL(string: "https://ingress.pressreader.com/services/calendar/get?cid=\(shortCid)")
+            else { return }
+            webView?.evaluateJavaScript("window.preset && window.preset.bearerToken ? window.preset.bearerToken : ''") { [weak self] result, _ in
+                guard let self = self, let token = result as? String, !token.isEmpty else { return }
+                var calReq = URLRequest(url: calUrl, timeoutInterval: 10)
+                calReq.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+                calReq.setValue("application/json", forHTTPHeaderField: "Accept")
+                print("BAVL calendar/get?cid=\(shortCid)")
+                URLSession.shared.dataTask(with: calReq) { [weak self] data, resp, _ in
+                    guard let self = self else { return }
+                    let status = (resp as? HTTPURLResponse)?.statusCode ?? 0
+                    let raw = data.flatMap { String(data: $0, encoding: .utf8) } ?? ""
+                    print("BAVL calendar shortCid status=\(status) body(300):", String(raw.prefix(300)))
+                    if status == 200 && self.parseCalendarAndEmit(body: raw) {
+                        self.calendarLoaded = true
+                    }
+                }.resume()
+            }
             guard let url = URL(string: "https://ingress.pressreader.com/services/catalog/issues?cid=\(shortCid)&count=7")
             else { return }
             // Récupérer le Bearer token depuis le webView
@@ -319,6 +343,34 @@ struct PressReaderWebView: UIViewRepresentable {
                     DispatchQueue.main.async { self.onEditionsLoaded?(sorted) }
                 }.resume()
             }
+        }
+
+
+        /// Parse la réponse de catalog/v2/publications/{shortCid}
+        /// {"latestIssue":{"issueDate":"2026-03-07T00:00:00","id":...}, "supplements":[...]}
+        private func parseEditionsFromPubV2(body: String) {
+            guard let data = body.data(using: .utf8),
+                  let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+            else { print("BAVL pubv2: parse échoué"); return }
+
+            // Extraire toutes les dates yyyyMMdd du JSON (latestIssue + supplements)
+            let padded = " \(body) "
+            let pattern = try? NSRegularExpression(pattern: "[^0-9]([0-9]{8})[^0-9]")
+            var seen = Set<String>()
+            var editions: [PressReaderEdition] = []
+            pattern?.enumerateMatches(in: padded, range: NSRange(padded.startIndex..., in: padded)) { m, _, _ in
+                guard let m = m, let r = Range(m.range(at: 1), in: padded) else { return }
+                let d = String(padded[r])
+                if d >= "20200101" && d <= "20301231" && !seen.contains(d) {
+                    seen.insert(d)
+                    editions.append(PressReaderEdition(date: d, issueId: 0))
+                }
+            }
+            let sorted = editions.sorted { $0.date > $1.date }
+            print("BAVL pubv2: \(sorted.count) dates trouvées:", sorted.prefix(5).map { $0.date })
+            // pubv2 ne donne qu'une seule édition (latestIssue) — pas assez pour un dropdown utile
+            // On log pour comprendre la structure, on n'émet pas encore
+            print("BAVL pubv2 root keys:", Array(root.keys))
         }
 
         // MARK: - Calendar API (liste des éditions disponibles)
