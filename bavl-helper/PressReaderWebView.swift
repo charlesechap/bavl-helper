@@ -203,6 +203,8 @@ struct PressReaderWebView: UIViewRepresentable {
         var onURLChange: ((URL?) -> Void)?
         /// Callback déclenché quand la liste des éditions est disponible
         var onEditionsLoaded: (([PressReaderEdition]) -> Void)?
+        /// Callback déclenché quand un article est prêt à afficher en mode natif
+        var onArticleReady: ((ArticleContent) -> Void)?
         private var urlObservation: NSKeyValueObservation?
         private var calendarLoaded = false
         private var articleDebugDone = false
@@ -222,7 +224,7 @@ struct PressReaderWebView: UIViewRepresentable {
                             self.articleDebugDone = true
                             webView.evaluateJavaScript("window.preset?.bearerToken ?? ''") { [weak self] result, _ in
                                 guard let self, let token = result as? String, !token.isEmpty else { return }
-                                self.fetchArticleDebug(articleId: articleId, bearerToken: token)
+                                self.fetchArticle(articleId: articleId, bearerToken: token)
                             }
                         }
                     }
@@ -295,29 +297,19 @@ struct PressReaderWebView: UIViewRepresentable {
         // MARK: - Debug article API
 
         /// Appel test: fetch v1/articles/{id}?articleFields=8191&fullBody=true et log JSON brut
-        func fetchArticleDebug(articleId: String, bearerToken: String) {
+        func fetchArticle(articleId: String, bearerToken: String) {
             guard let url = URL(string: "https://ingress.pressreader.com/services/v1/articles/\(articleId)/?articleFields=8191&isHyphenated=true&fullBody=true")
             else { return }
             var req = URLRequest(url: url, timeoutInterval: 15)
             req.setValue("Bearer \(bearerToken)", forHTTPHeaderField: "Authorization")
             req.setValue("application/json", forHTTPHeaderField: "Accept")
-            print("ARTICLE fetch:", articleId)
-            URLSession.shared.dataTask(with: req) { data, resp, _ in
-                let status = (resp as? HTTPURLResponse)?.statusCode ?? 0
-                guard let data = data, let raw = String(data: data, encoding: .utf8) else {
-                    print("ARTICLE error status=\(status)"); return
-                }
-                print("ARTICLE status=\(status) len=\(raw.count)")
-                // Logger les clés top-level et chercher le contenu
-                if let d = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
-                    print("ARTICLE keys:", d.keys.sorted())
-                    // Chercher body/paragraphs/content
-                    for key in ["body", "paragraphs", "content", "fullBody", "text", "bodyHtml"] {
-                        if let val = d[key] {
-                            let s = "\(val)"
-                            print("ARTICLE \(key):", String(s.prefix(2000)))
-                        }
-                    }
+            URLSession.shared.dataTask(with: req) { [weak self] data, resp, _ in
+                guard let data,
+                      let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                      let article = ArticleContent.parse(from: json)
+                else { return }
+                DispatchQueue.main.async {
+                    self?.onArticleReady?(article)
                 }
             }.resume()
         }
