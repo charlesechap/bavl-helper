@@ -584,128 +584,64 @@ struct PressReaderSheet: View {
     @ObservedObject var vm: AppViewModel
     @Environment(\.dismiss) private var dismiss
 
-    @State private var currentURL: URL? = nil
     @State private var coordinator: PressReaderWebView.Coordinator? = nil
     @State private var editions: [PressReaderEdition] = []
-    @State private var showEditionPicker = false
-    @State private var articleContent: ArticleContent? = nil
-
-    private var viewMode: ViewMode {
-        (currentURL?.absoluteString ?? "").contains("/textview") ? .text : .layout
-    }
-
-    private var isOnArticle: Bool {
-        (currentURL?.absoluteString ?? "").range(of: #"/[0-9]{8}/[0-9]{10,}"#, options: .regularExpression) != nil
-    }
-
-    private var isOnJournal: Bool {
-        let s = currentURL?.absoluteString ?? ""
-        return s.range(of: #"/[0-9]{8}"#, options: .regularExpression) != nil
-            && s.range(of: #"/[0-9]{8}/[0-9]{10,}"#, options: .regularExpression) == nil
-    }
-
-    private var isOnArchive: Bool {
-        currentURL?.absoluteString.contains("/archive") == true
-    }
-
-    private var currentDateFromURL: String {
-        let s = currentURL?.absoluteString ?? ""
-        guard let r = s.range(of: #"[0-9]{8}"#, options: .regularExpression) else { return "" }
-        return String(s[r])
-    }
-
-    /// "Le Temps  —  Ven. 06.03.2026"
-    private var editionLabel: String {
-        let dateStr = currentDateFromURL
-        guard dateStr.count == 8, let d = editionDateFormatter.date(from: dateStr) else {
-            return newspaper.name
-        }
-        return "\(newspaper.name)  —  \(editionDisplayFormatter.string(from: d))"
-    }
+    @StateObject private var journalVM = JournalViewModel()
 
     var body: some View {
-        GeometryReader { geo in
-            let safeTop = geo.safeAreaInsets.top
-            ZStack(alignment: .top) {
-                Color.bg.ignoresSafeArea()
+        ZStack {
+            Color(red: 0.13, green: 0.13, blue: 0.13).ignoresSafeArea()
 
-                if let url = newspaper.resolvedURL ?? newspaper.archiveURL {
-                    _PressReaderWebViewBridge(
-                        initialURL: url,
-                        pressReaderPath: newspaper.pressReaderPath,
-                        onCoordinatorReady: { coord in
-                            coordinator = coord
-                            coord.onEditionsLoaded = { loaded in
-                                editions = loaded
-                            }
-                            coord.onArticleReady = { article in
-                                articleContent = article
-                            }
-                        },
-                        onURLChange: { currentURL = $0 }
-                    )
-                    .ignoresSafeArea()
-                    .padding(.top, safeTop + 44)
-                } else {
-                    ContentUnavailableView("URL invalide", systemImage: "xmark.circle")
-                }
-
-                TerminalBar(
-                    isOnArchive: isOnArchive,
-                    isOnJournal: isOnJournal,
-                    isOnArticle: isOnArticle,
-                    viewMode: viewMode,
-                    editionLabel: editionLabel,
-                    showEditionPicker: $showEditionPicker,
-                    onDismiss: { dismiss() },
-                    onTxt: { coordinator?.goToTextView() },
-                    onPdf: { coordinator?.goToPDF() },
-                    onJournal: { coordinator?.goToJournal() },
-                    onShare: {
-                        guard let coord = coordinator else { return }
-                        guard let scene = UIApplication.shared.connectedScenes
-                            .compactMap({ $0 as? UIWindowScene })
-                            .first(where: { $0.activationState == .foregroundActive }),
-                              let root = scene.windows.first(where: { $0.isKeyWindow })?.rootViewController
-                        else { return }
-                        var presenter = root
-                        while let p = presenter.presentedViewController { presenter = p }
-                        coord.sharePDF(presenter: presenter)
+            // WebView BAVL caché — uniquement pour l'auth + calendar + TOC
+            if let url = newspaper.resolvedURL ?? newspaper.archiveURL {
+                _PressReaderWebViewBridge(
+                    initialURL: url,
+                    pressReaderPath: newspaper.pressReaderPath,
+                    onCoordinatorReady: { coord in
+                        coordinator = coord
+                        coord.onEditionsLoaded = { loaded in
+                            editions = loaded
+                        }
+                        coord.onBearerReady = { token, path in
+                            journalVM.onBearerReady(token: token, path: path)
+                        }
+                        coord.onTOCLoaded = { ids, issueId in
+                            journalVM.onTOCLoaded(ids: ids, issueId: issueId)
+                        }
+                        coord.onArticleReady = { _ in } // unused in zero-webview mode
                     },
-                    safeAreaTop: safeTop
+                    onURLChange: { url in
+                        if let dateStr = url?.absoluteString.extractDate() {
+                            journalVM.currentDate = dateStr
+                        }
+                    }
                 )
-
-                // Dropdown éditions
-                if showEditionPicker {
-                    EditionPickerOverlay(
-                        editions: editions,
-                        currentDate: currentDateFromURL,
-                        safeTop: safeTop,
-                        onSelect: { edition in
-                            showEditionPicker = false
-                            coordinator?.navigateToEdition(edition)
-                        },
-                        onDismiss: { showEditionPicker = false }
-                    )
-                }
+                .frame(width: 1, height: 1)       // invisible
+                .opacity(0)
+                .allowsHitTesting(false)
             }
-            .ignoresSafeArea(edges: .top)
-        }
-        .sheet(item: $articleContent) { article in
-            ArticleReaderView(
-                article: article,
-                onDismiss: { articleContent = nil },
-                onJournal: {
-                    articleContent = nil
-                    coordinator?.goToJournal()
+
+            // Vue native journal
+            JournalView(
+                vm: journalVM,
+                newspaper: newspaper,
+                editions: editions,
+                onDismiss: { dismiss() },
+                onEditionSelect: { edition in
+                    coordinator?.navigateToEdition(edition)
                 }
             )
-            .presentationCornerRadius(0)
         }
         .preferredColorScheme(.dark)
     }
 }
 
+private extension String {
+    func extractDate() -> String? {
+        guard let r = self.range(of: "[0-9]{8}", options: .regularExpression) else { return nil }
+        return String(self[r])
+    }
+}
 // MARK: - EditionPickerOverlay
 
 private struct EditionPickerOverlay: View {
