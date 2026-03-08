@@ -207,7 +207,7 @@ struct PressReaderWebView: UIViewRepresentable {
         var onArticleReady: ((ArticleContent) -> Void)?
         private var urlObservation: NSKeyValueObservation?
         private var calendarLoaded = false
-        private var articleDebugDone = false
+        private var lastFetchedArticleId: String = ""
         private var lastEditionLoaded = false
 
         func startObservingURL(_ wv: WKWebView) {
@@ -220,10 +220,13 @@ struct PressReaderWebView: UIViewRepresentable {
                         let parts = urlStr.split(separator: "/").map(String.init)
                         if let articleId = parts.last,
                            articleId.count >= 12, articleId.allSatisfy({ $0.isNumber }),
-                           !self.articleDebugDone {
-                            self.articleDebugDone = true
+                           self.lastFetchedArticleId != articleId {
+                            self.lastFetchedArticleId = articleId
                             webView.evaluateJavaScript("window.preset?.bearerToken ?? ''") { [weak self] result, _ in
-                                guard let self, let token = result as? String, !token.isEmpty else { return }
+                                guard let self, let token = result as? String, !token.isEmpty else {
+                                    print("ARTICLE no token")
+                                    return
+                                }
                                 self.fetchArticle(articleId: articleId, bearerToken: token)
                             }
                         }
@@ -303,12 +306,24 @@ struct PressReaderWebView: UIViewRepresentable {
             var req = URLRequest(url: url, timeoutInterval: 15)
             req.setValue("Bearer \(bearerToken)", forHTTPHeaderField: "Authorization")
             req.setValue("application/json", forHTTPHeaderField: "Accept")
-            URLSession.shared.dataTask(with: req) { [weak self] data, resp, _ in
-                guard let data,
-                      let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                      let article = ArticleContent.parse(from: json)
-                else { return }
+            print("ARTICLE fetch:", articleId)
+            URLSession.shared.dataTask(with: req) { [weak self] data, resp, err in
+                let status = (resp as? HTTPURLResponse)?.statusCode ?? 0
+                guard let data else {
+                    print("ARTICLE error:", err?.localizedDescription ?? "nil", "status:", status)
+                    return
+                }
+                guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                    print("ARTICLE json parse error")
+                    return
+                }
+                guard let article = ArticleContent.parse(from: json) else {
+                    print("ARTICLE content parse error, keys:", json.keys.sorted())
+                    return
+                }
+                print("ARTICLE ready:", article.title.prefix(40), "paragraphs:", article.paragraphs.count)
                 DispatchQueue.main.async {
+                    print("ARTICLE onArticleReady set:", self?.onArticleReady != nil)
                     self?.onArticleReady?(article)
                 }
             }.resume()
