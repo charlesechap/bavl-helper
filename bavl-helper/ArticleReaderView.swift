@@ -51,8 +51,12 @@ struct ArticleContent: Identifiable {
                 let pType = p["type"] as? String ?? "text"
                 // Image (type = "photo")
                 if pType == "photo" {
-                    if let regionKey = p["regionKey"] as? String, !regionKey.isEmpty,
-                       let imgURL = URL(string: "https://i.prcdn.co/img?regionKey=\(regionKey)&width=600") {
+                    // regionKey peut être sous "regionKey" ou "id" selon l'endpoint
+                    let rawKey = (p["regionKey"] as? String) ?? (p["id"] as? String) ?? ""
+                    print("ARTICLE photo keys=\(Array(p.keys).sorted()) rawKey=\(rawKey.prefix(20))")
+                    if !rawKey.isEmpty,
+                       let encoded = rawKey.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
+                       let imgURL = URL(string: "https://i.prcdn.co/img?regionKey=\(encoded)&width=600") {
                         let caption = (p["text"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? ""
                         paragraphs.append(ArticleParagraph(text: caption, style: .image, imageURL: imgURL))
                     }
