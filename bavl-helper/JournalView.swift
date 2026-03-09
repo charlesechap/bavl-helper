@@ -240,6 +240,7 @@ struct JournalView: View {
                 initialIndex: selectedArticleIndex,
                 newspaperName: newspaper.name,
                 editionDate: vm.currentDate,
+                pressReaderPath: newspaper.pressReaderPath,
                 bearer: bearerToken,
                 onJournal: { selectedArticle = nil }
             )
