@@ -84,7 +84,7 @@ class JournalViewModel: ObservableObject {
         print("JOURNAL onTOCLoaded ids=\(ids.count) token.count=\(bearerToken.count)")
         guard !ids.isEmpty else { return }
         // Ignorer si même édition déjà chargée (double didFinish du WebView)
-        guard issueId != currentIssueId || state == .idle else {
+        guard issueId != currentIssueId || state == LoadState.idle else {
             print("JOURNAL onTOCLoaded skipped: same issueId=\(issueId)")
             return
         }
