@@ -473,7 +473,8 @@ struct PressReaderWebView: UIViewRepresentable {
             let issueIdLong = "\(shortCid)\(edition.date)00000000001001"
             print("BAVL navigateToEdition: \(edition.date) → issueId=\(issueIdLong)")
             loadTOC(issueId: issueIdLong)
-            navigateToTextView(date: edition.date)
+            // NE PAS appeler navigateToTextView — déclencherait didFinish → fetchTOCIfNeeded → écrase le TOC
+            // navigateToTextView(date: edition.date)
         }
 
         // MARK: - TOC
@@ -483,6 +484,11 @@ struct PressReaderWebView: UIViewRepresentable {
         var currentDate: String = ""
 
         func fetchTOCIfNeeded() {
+            // Ne pas écraser un TOC déjà chargé ou en cours (ex: navigateToEdition)
+            guard currentIssueId.isEmpty else {
+                print("BAVL fetchTOCIfNeeded skipped: currentIssueId=\(currentIssueId)")
+                return
+            }
             guard let url = webView?.url?.absoluteString else { return }
             let dateRegex = try? NSRegularExpression(pattern: "/(\\d{8})/")
             if let match = dateRegex?.firstMatch(in: url, range: NSRange(url.startIndex..., in: url)),
