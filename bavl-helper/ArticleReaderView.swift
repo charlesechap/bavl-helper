@@ -85,8 +85,12 @@ struct ArticleContent: Identifiable {
             for img in imgs {
                 let rawKey = (img["regionKey"] as? String) ?? (img["id"] as? String) ?? ""
                 guard !rawKey.isEmpty,
-                      let encoded = rawKey.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
-                      let imgURL = URL(string: "https://i.prcdn.co/img?regionKey=\(encoded)&width=1170")
+                      let encoded = rawKey.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed)
+                else { continue }
+                // Ne pas upscaler au-delà de la résolution native
+                let nativeW = (img["size"] as? [String: Any]).flatMap { $0["width"] as? Int } ?? 0
+                let targetW = nativeW > 0 ? min(nativeW, 1170) : 1170
+                guard let imgURL = URL(string: "https://i.prcdn.co/img?regionKey=\(encoded)&width=\(targetW)")
                 else { continue }
                 let caption = (img["caption"] as? String)?.fixedEncoding ?? ""
                 imageParagraphs.append(ArticleParagraph(text: caption, style: .image, imageURL: imgURL))
