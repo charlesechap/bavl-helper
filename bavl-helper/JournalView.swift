@@ -227,7 +227,7 @@ struct JournalView: View {
                     }
                 }
                 .padding(.top, barVisible ? safeTop + 89 : 0)  // suit la barre
-                .animation(.easeInOut(duration: 0.22), value: barVisible)mée = 89
+                .animation(.easeInOut(duration: 0.22), value: barVisible)
                 .onScrollGeometryChange(for: CGFloat.self,
                     of: { $0.contentOffset.y },
                     action: { old, new in
