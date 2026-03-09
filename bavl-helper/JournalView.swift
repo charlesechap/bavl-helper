@@ -226,7 +226,10 @@ struct JournalView: View {
                 // TerminalBar
                 journalBar(safeTop: safeTop)
 
-                // Edition picker (géré via .sheet ci-dessous)
+                        // Edition picker overlay
+                if showEditionPicker {
+                    editionPickerOverlay(safeTop: safeTop)
+                }
             }
             .ignoresSafeArea(edges: .top)
         }
@@ -266,11 +269,7 @@ struct JournalView: View {
             .presentationDragIndicator(.visible)
             .preferredColorScheme(.dark)
         }
-        .sheet(isPresented: $showEditionPicker) {
-            editionPickerSheet
-                .presentationDetents([.medium, .large])
-                .presentationDragIndicator(.visible)
-        }
+
         .preferredColorScheme(.dark)
     }
 
@@ -394,30 +393,15 @@ struct JournalView: View {
     private func journalBar(safeTop: CGFloat) -> some View {
         VStack(spacing: 0) {
             HStack(alignment: .center, spacing: 0) {
-                // ← fermer
-                Button(action: onDismiss) {
-                    Text("←")
-                        .font(.system(.body, design: .monospaced))
-                        .foregroundStyle(activeColor)
-                }
-                .frame(width: 44, height: 44)
-                .padding(.leading, 8)
-
-                Spacer()
-
                 // Edition label (cliquable)
                 Button { showEditionPicker.toggle() } label: {
                     Text(editionLabel)
-                        .font(.system(.caption2, design: .monospaced))
-                        .foregroundStyle(showEditionPicker ? activeColor : Color(white: 0.72))
+                        .font(.system(.callout, design: .monospaced))
+                        .foregroundStyle(showEditionPicker ? activeColor : Color(white: 0.82))
                         .lineLimit(1)
                 }
 
                 Spacer()
-
-                // Espace droite symétrique
-                Color.clear.frame(width: 44, height: 44)
-                    .padding(.trailing, 8)
             }
             .frame(height: 44)
             .background(bgColor)
@@ -436,46 +420,41 @@ struct JournalView: View {
 
     // MARK: - Edition picker
 
-    private var editionPickerSheet: some View {
-        NavigationView {
-            List {
-                ForEach(editions) { edition in
-                    Button {
-                        showEditionPicker = false
-                        onEditionSelect(edition)
-                    } label: {
-                        HStack {
-                            Text(edition.displayLabel)
-                                .font(.system(.body, design: .monospaced))
-                                .foregroundStyle(edition.date == vm.currentDate ? activeColor : Color(white: 0.75))
-                            Spacer()
-                            if edition.date == vm.currentDate {
-                                Image(systemName: "checkmark")
-                                    .font(.system(size: 12, weight: .semibold))
-                                    .foregroundStyle(activeColor)
+    private func editionPickerOverlay(safeTop: CGFloat) -> some View {
+        ZStack(alignment: .top) {
+            Color.black.opacity(0.6)
+                .ignoresSafeArea()
+                .onTapGesture { showEditionPicker = false }
+
+            VStack(spacing: 0) {
+                Color.clear.frame(height: safeTop + 44)
+
+                VStack(spacing: 0) {
+                    ForEach(editions) { edition in
+                        Button {
+                            showEditionPicker = false
+                            onEditionSelect(edition)
+                        } label: {
+                            HStack(spacing: 12) {
+                                Text(edition.displayLabel)
+                                    .font(.system(.callout, design: .monospaced))
+                                    .foregroundStyle(edition.date == vm.currentDate ? activeColor : Color(white: 0.65))
+                                Spacer()
+                                if edition.date == vm.currentDate {
+                                    Image(systemName: "checkmark")
+                                        .font(.system(size: 11, weight: .semibold))
+                                        .foregroundStyle(activeColor)
+                                }
                             }
+                            .padding(.horizontal, 20)
+                            .padding(.vertical, 13)
                         }
+                        .buttonStyle(.plain)
+                        Divider().overlay(faintColor)
                     }
-                    .buttonStyle(.plain)
-                    .listRowBackground(bgColor)
                 }
+                .background(bgColor)
             }
-            .listStyle(.plain)
-            .background(bgColor)
-            .scrollContentBackground(.hidden)
-            .navigationTitle(newspaper.name)
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button("Fermer") { showEditionPicker = false }
-                        .font(.system(.body, design: .monospaced))
-                        .foregroundStyle(activeColor)
-                }
-            }
-        }
-        .preferredColorScheme(.dark)
-        .onAppear {
-            // Scroll vers l'édition courante — via scrollPosition si dispo
         }
     }
 
