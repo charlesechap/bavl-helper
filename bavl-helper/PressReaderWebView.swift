@@ -661,6 +661,7 @@ struct PressReaderSheet: View {
                 editions: editions,
                 onDismiss: { dismiss() },
                 onEditionSelect: { edition in
+                    journalVM.resetForEditionChange()
                     coordinator?.navigateToEdition(edition)
                 }
             )
