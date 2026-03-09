@@ -120,6 +120,7 @@ struct ArticleContent: Identifiable {
 
 struct ArticleReaderView: View {
     let article: ArticleContent
+    let newspaperName: String
     let onDismiss: () -> Void
     let onJournal: () -> Void
 
@@ -234,30 +235,27 @@ struct ArticleReaderView: View {
         case .image:
             VStack(alignment: .leading, spacing: 6) {
                 if let url = para.imageURL {
-                    let pts = para.nativeSize
-                    // Afficher à taille native/@3x, plafonné à la largeur dispo
+                    let ratio = para.nativeSize.width > 0
+                        ? para.nativeSize.height / para.nativeSize.width
+                        : 0.75
                     GeometryReader { geo in
-                        let maxW = geo.size.width
-                        let natW = pts.width / 3.0  // pixels → points @3x
-                        let dispW = pts.width > 0 ? min(natW, maxW) : maxW
-                        let dispH = pts.width > 0 ? dispW * pts.height / pts.width : 160
+                        let w = geo.size.width
+                        let h = w * ratio
                         AsyncImage(url: url) { img in
                             img.resizable()
-                                .aspectRatio(contentMode: .fit)
-                                .frame(width: dispW, height: dispH)
+                                .aspectRatio(contentMode: .fill)
+                                .frame(width: w, height: h)
+                                .clipped()
                         } placeholder: {
                             Color(white: 0.18)
-                                .frame(width: dispW, height: dispH)
+                                .frame(width: w, height: h)
                         }
-                        .frame(maxWidth: .infinity, alignment: .center)
                     }
                     .frame(height: {
-                        let natW = para.nativeSize.width / 3.0
-                        let natH = para.nativeSize.height / 3.0
-                        guard natW > 0 else { return 160 }
-                        let screenW = UIScreen.main.bounds.width - 32
-                        let dispW = min(natW, screenW)
-                        return dispW * natH / natW
+                        let screenW = UIScreen.main.bounds.width - 40
+                        let r = para.nativeSize.width > 0
+                            ? para.nativeSize.height / para.nativeSize.width : 0.75
+                        return screenW * r
                     }())
                     .padding(.vertical, 4)
                 }
@@ -326,14 +324,14 @@ struct ArticleReaderView: View {
     // MARK: - Helpers
 
     private var articleDateLabel: String {
-        guard article.date.count == 8 else { return "" }
+        guard article.date.count == 8 else { return newspaperName }
         let fmt = DateFormatter()
         fmt.dateFormat = "yyyyMMdd"
-        guard let d = fmt.date(from: article.date) else { return "" }
+        guard let d = fmt.date(from: article.date) else { return newspaperName }
         let disp = DateFormatter()
         disp.dateStyle = .medium; disp.timeStyle = .none
         disp.locale = Locale(identifier: "fr_CH")
-        return disp.string(from: d)
+        return "\(newspaperName)  —  \(disp.string(from: d))"
     }
 
     private func displayDate(_ dateStr: String) -> String? {
