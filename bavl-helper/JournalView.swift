@@ -225,7 +225,6 @@ struct JournalView: View {
 
         
             }
-            .ignoresSafeArea(edges: .top)
         }
         // Sheet article (TabView multi-articles)
         .sheet(item: $selectedArticle) { _ in
@@ -285,8 +284,7 @@ struct JournalView: View {
                 Color.clear.frame(height: 32)
             }
         }
-        .padding(.top, barVisible ? safeTop + 89 : 0)
-        .animation(.easeInOut(duration: 0.22), value: barVisible)
+        .padding(.top, 89)
         .onScrollGeometryChange(for: CGFloat.self,
             of: { $0.contentOffset.y },
             action: { _, new in
@@ -427,10 +425,9 @@ struct JournalView: View {
 
             Divider().overlay(faintColor)
         }
-        .offset(y: barVisible ? 0 : -(safeTop + barHeight))
+        .offset(y: barVisible ? 0 : -barHeight)
         .opacity(barVisible ? 1 : 0)
         .animation(.easeInOut(duration: 0.22), value: barVisible)
-        .padding(.top, safeTop)
         .gesture(
             DragGesture(minimumDistance: 30)
                 .onEnded { v in
