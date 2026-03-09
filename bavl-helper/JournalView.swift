@@ -193,8 +193,6 @@ struct JournalView: View {
     @State private var selectedArticleIndex: Int = 0
     @State private var loadingArticleId: Int64? = nil
     @State private var barVisible = true
-    @State private var showEditionPicker = false
-    @State private var pickerCenteredDate: String = ""
     @State private var lastScrollY: CGFloat = 0
     @State private var previewMeta: ArticleMeta? = nil
     @State private var previewArticle: ArticleContent? = nil
@@ -405,42 +403,47 @@ struct JournalView: View {
     // MARK: - TerminalBar
 
     private func journalBar(safeTop: CGFloat) -> some View {
-        ZStack(alignment: .top) {
-            // Barre normale (toujours présente, sous le picker)
-            VStack(spacing: 0) {
-                Text(newspaper.name)
-                    .font(.system(.callout, design: .monospaced))
-                    .foregroundStyle(Color(white: 0.82))
-                    .lineLimit(1)
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 44)
-                    .background(bgColor)
+        VStack(spacing: 0) {
+            // Nom du journal
+            Text(newspaper.name)
+                .font(.system(.callout, design: .monospaced))
+                .foregroundStyle(Color(white: 0.82))
+                .lineLimit(1)
+                .frame(maxWidth: .infinity)
+                .frame(height: 44)
+                .background(bgColor)
 
-                Divider().overlay(faintColor)
+            Divider().overlay(faintColor)
 
-                // Édition active — tap = ouvre le picker
-                Text(dateLabel)
-                    .font(.system(.callout, design: .monospaced))
-                    .foregroundStyle(Color(white: 0.82))
-                    .lineLimit(1)
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 44)
-                    .background(bgColor)
-                    .contentShape(Rectangle())
-                    .onTapGesture {
-                        pickerCenteredDate = vm.currentDate
-                        withAnimation(.easeInOut(duration: 0.25)) { showEditionPicker = true }
-                    }
+            // Date de l'édition — swipe gauche = édition précédente, droite = suivante
+            Text(dateLabel)
+                .font(.system(.callout, design: .monospaced))
+                .foregroundStyle(Color(white: 0.82))
+                .lineLimit(1)
+                .frame(maxWidth: .infinity)
+                .frame(height: 44)
+                .background(bgColor)
+                .contentShape(Rectangle())
+                .gesture(
+                    DragGesture(minimumDistance: 30)
+                        .onEnded { v in
+                            guard abs(v.translation.width) > abs(v.translation.height) else { return }
+                            guard let idx = editions.firstIndex(where: { $0.date == vm.currentDate }) else { return }
+                            if v.translation.width < 0 {
+                                // swipe gauche = édition plus ancienne (index +1)
+                                if idx + 1 < editions.count {
+                                    onEditionSelect(editions[idx + 1])
+                                }
+                            } else {
+                                // swipe droite = édition plus récente (index -1)
+                                if idx > 0 {
+                                    onEditionSelect(editions[idx - 1])
+                                }
+                            }
+                        }
+                )
 
-                Divider().overlay(faintColor)
-            }
-
-            // Picker roulette — couvre tout depuis le haut (safeTop compris via padding(.top, safeTop))
-            if showEditionPicker {
-                editionPicker(pickerHeight: safeTop + 89)
-                    .transition(.opacity)
-                    .zIndex(20)
-            }
+            Divider().overlay(faintColor)
         }
         .offset(y: barVisible ? 0 : -(safeTop + barHeight))
         .opacity(barVisible ? 1 : 0)
@@ -456,79 +459,7 @@ struct JournalView: View {
         )
     }
 
-    // Hauteur barre fermée
     private var barHeight: CGFloat { 89 }
-
-    @ViewBuilder
-    private func editionPicker(pickerHeight: CGFloat) -> some View {
-        // Roulette : 3 lignes visibles, ligne centrale = édition sélectionnée
-        // pickerHeight = hauteur totale du picker (couvre titre + édition)
-        let rowH: CGFloat = 44
-        let visibleRows: CGFloat = pickerHeight / rowH  // nb lignes visibles
-        let paddingRows = Int(visibleRows / 2)          // lignes vides haut/bas pour centrage
-
-        ScrollViewReader { proxy in
-            ZStack {
-                bgColor.ignoresSafeArea()
-
-                // Indicateur ligne centrale
-                RoundedRectangle(cornerRadius: 0)
-                    .fill(Color(white: 0.18))
-                    .frame(height: rowH)
-                    .frame(maxWidth: .infinity)
-                    .offset(y: -rowH / 2 + pickerHeight / 2 - rowH)
-
-                ScrollView(.vertical, showsIndicators: false) {
-                    VStack(spacing: 0) {
-                        // Padding haut pour centrage
-                        ForEach(0..<paddingRows, id: \.self) { _ in
-                            Color.clear.frame(height: rowH)
-                        }
-
-                        ForEach(editions) { edition in
-                            let isCentered = edition.date == pickerCenteredDate
-                            Text(editionDateLabel(edition.date))
-                                .font(.system(.callout, design: .monospaced))
-                                .foregroundStyle(isCentered ? activeColor : Color(white: 0.35))
-                                .lineLimit(1)
-                                .frame(maxWidth: .infinity)
-                                .frame(height: rowH)
-                                .contentShape(Rectangle())
-                                .onTapGesture {
-                                    if isCentered {
-                                        // Confirme
-                                        withAnimation(.easeInOut(duration: 0.22)) { showEditionPicker = false }
-                                        if edition.date != vm.currentDate { onEditionSelect(edition) }
-                                    } else {
-                                        // Centre cette édition
-                                        withAnimation(.easeInOut(duration: 0.2)) {
-                                            pickerCenteredDate = edition.date
-                                            proxy.scrollTo(edition.date, anchor: .center)
-                                        }
-                                    }
-                                }
-                                .id(edition.date)
-                        }
-
-                        // Padding bas pour centrage
-                        ForEach(0..<paddingRows, id: \.self) { _ in
-                            Color.clear.frame(height: rowH)
-                        }
-                    }
-                }
-                .frame(height: pickerHeight)
-                .onAppear {
-                    proxy.scrollTo(pickerCenteredDate, anchor: .center)
-                }
-            }
-            .frame(height: pickerHeight)
-            // Tap hors liste = ferme sans confirmer
-            .onTapGesture { }  // absorbe les taps résiduels
-        }
-        Divider().overlay(faintColor)
-    }
-
-
     // MARK: - Helpers
 
     private func editionDateLabel(_ dateStr: String) -> String {
