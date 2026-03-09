@@ -223,9 +223,14 @@ struct ArticleReaderView: View {
         case .image:
             VStack(alignment: .leading, spacing: 6) {
                 if let url = para.imageURL {
-                    PressImage(url: url, contentMode: .fit)
-                        .frame(maxWidth: .infinity)
-                        .frame(minHeight: 160)
+                    AsyncImage(url: url) { img in
+                        img.resizable()
+                            .aspectRatio(contentMode: .fit)
+                            .frame(maxWidth: .infinity)
+                    } placeholder: {
+                        Color(white: 0.18)
+                            .frame(maxWidth: .infinity, minHeight: 160)
+                    }
                 }
                 if !para.text.isEmpty {
                     Text(para.text)
