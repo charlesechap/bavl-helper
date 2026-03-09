@@ -74,10 +74,22 @@ class JournalViewModel: ObservableObject {
         pressReaderPath = path
     }
 
+    func resetForEditionChange() {
+        currentIssueId = ""
+        sections = []
+        state = .loading
+    }
+
     func onTOCLoaded(ids: [Int64], issueId: String) {
         print("JOURNAL onTOCLoaded ids=\(ids.count) token.count=\(bearerToken.count)")
         guard !ids.isEmpty else { return }
+        // Ignorer si même édition déjà chargée (double didFinish du WebView)
+        guard issueId != currentIssueId || state == .idle else {
+            print("JOURNAL onTOCLoaded skipped: same issueId=\(issueId)")
+            return
+        }
         currentIssueId = issueId
+        sections = []
         state = .loading
         fetchMetadata(ids: ids)
     }
