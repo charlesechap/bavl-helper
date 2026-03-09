@@ -280,31 +280,38 @@ struct JournalView: View {
                             .foregroundStyle(dimColor)
                     }
                 }
-                Spacer()
-                if loadingArticleId == article.id {
-                    ProgressView()
-                        .scaleEffect(0.7)
-                        .tint(dimColor)
-                } else if let thumbURL = article.thumbnailURL {
-                    AsyncImage(url: thumbURL) { phase in
-                        switch phase {
-                        case .success(let img):
-                            img.resizable()
-                                .aspectRatio(contentMode: .fill)
-                                .frame(width: 72, height: 72)
-                                .clipped()
-                                .cornerRadius(4)
-                        default:
-                            Color(white: 0.18)
-                                .frame(width: 72, height: 72)
-                                .cornerRadius(4)
+                Spacer(minLength: 8)
+                // Zone droite fixe — évite le relayout au tap
+                ZStack {
+                    if loadingArticleId == article.id {
+                        ProgressView()
+                            .scaleEffect(0.7)
+                            .tint(dimColor)
+                            .frame(width: 72, height: 72)
+                    } else if let thumbURL = article.thumbnailURL {
+                        AsyncImage(url: thumbURL) { phase in
+                            switch phase {
+                            case .success(let img):
+                                img.resizable()
+                                    .aspectRatio(contentMode: .fill)
+                                    .clipped()
+                                    .cornerRadius(4)
+                            default:
+                                Color(white: 0.18)
+                                    .cornerRadius(4)
+                            }
                         }
+                        .frame(width: 72, height: 72)
+                    } else if let p = article.pageNumber {
+                        Text("p.\(p)")
+                            .font(.system(.caption2, design: .monospaced))
+                            .foregroundStyle(dimColor)
+                            .frame(width: 72, alignment: .trailing)
+                    } else {
+                        Color.clear.frame(width: 0)
                     }
-                } else if let p = article.pageNumber {
-                    Text("p.\(p)")
-                        .font(.system(.caption2, design: .monospaced))
-                        .foregroundStyle(dimColor)
                 }
+                .frame(width: 72)
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
