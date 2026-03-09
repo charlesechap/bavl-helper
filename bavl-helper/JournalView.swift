@@ -232,6 +232,7 @@ struct JournalView: View {
         .sheet(item: $selectedArticle) { article in
             ArticleReaderView(
                 article: article,
+                newspaperName: newspaper.name,
                 onDismiss: { selectedArticle = nil },
                 onJournal: { selectedArticle = nil }
             )
