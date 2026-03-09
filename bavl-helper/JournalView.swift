@@ -404,37 +404,40 @@ struct JournalView: View {
     // MARK: - TerminalBar
 
     private func journalBar(safeTop: CGFloat) -> some View {
-        VStack(spacing: 0) {
-            // Nom du journal
-            Text(newspaper.name)
-                .font(.system(.callout, design: .monospaced))
-                .foregroundStyle(Color(white: 0.82))
-                .lineLimit(1)
-                .frame(maxWidth: .infinity)
-                .frame(height: 44)
-                .background(bgColor)
+        ZStack(alignment: .top) {
+            // Barre fixe : nom + séparateur + date
+            VStack(spacing: 0) {
+                Text(newspaper.name)
+                    .font(.system(.callout, design: .monospaced))
+                    .foregroundStyle(Color(white: 0.82))
+                    .lineLimit(1)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 44)
+                    .background(bgColor)
 
-            Divider().overlay(faintColor)
+                Divider().overlay(faintColor)
 
-            // Date de l'édition active — tap = ouvre/ferme carousel
-            Text(dateLabel)
-                .font(.system(.callout, design: .monospaced))
-                .foregroundStyle(showEditionPicker ? activeColor : Color(white: 0.55))
-                .lineLimit(1)
-                .frame(maxWidth: .infinity)
-                .frame(height: 44)
-                .background(bgColor)
-                .contentShape(Rectangle())
-                .onTapGesture {
-                    withAnimation(.easeInOut(duration: 0.22)) { showEditionPicker.toggle() }
-                }
+                Text(dateLabel)
+                    .font(.system(.callout, design: .monospaced))
+                    .foregroundStyle(showEditionPicker ? activeColor : Color(white: 0.55))
+                    .lineLimit(1)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 44)
+                    .background(bgColor)
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        withAnimation(.easeInOut(duration: 0.22)) { showEditionPicker.toggle() }
+                    }
 
-            Divider().overlay(faintColor)
+                Divider().overlay(faintColor)
+            }
 
-            // Carousel : visible seulement si showEditionPicker
+            // Carousel superposé, ancré sous la ligne date (89pt depuis le haut du ZStack)
             if showEditionPicker {
                 editionCarousel
-                    .transition(.move(edge: .top).combined(with: .opacity))
+                    .offset(y: 89)
+                    .transition(.opacity.combined(with: .move(edge: .top)))
+                    .zIndex(10)
             }
         }
         .offset(y: barVisible ? 0 : -(safeTop + barHeight))
