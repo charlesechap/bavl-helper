@@ -241,12 +241,12 @@ struct ArticleReaderView: View {
             pressReaderPath: pressReaderPath,
             safeTop: safeTop,
             isActive: idx == currentIndex,
-            barVisible: $barVisible,
-            lastScrollY: $lastScrollY,
             onPrevArticle: { currentIndex = max(0, idx - 1) },
             onNextArticle: { currentIndex = idx + 1 },
             onJournal: onJournal,
-            onShare: { text in shareText = text; showShare = true }
+            onShare: { text in shareText = text; showShare = true },
+            barVisible: $barVisible,
+            lastScrollY: $lastScrollY
         )
     }
 
