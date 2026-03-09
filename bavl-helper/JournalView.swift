@@ -194,6 +194,7 @@ struct JournalView: View {
     @State private var loadingArticleId: Int64? = nil
     @State private var barVisible = true
     @State private var showEditionPicker = false
+    @State private var pickerCenteredDate: String = ""
     @State private var lastScrollY: CGFloat = 0
     @State private var previewMeta: ArticleMeta? = nil
     @State private var previewArticle: ArticleContent? = nil
@@ -404,22 +405,42 @@ struct JournalView: View {
     // MARK: - TerminalBar
 
     private func journalBar(safeTop: CGFloat) -> some View {
-        VStack(spacing: 0) {
-            // Nom du journal — fixe, non cliquable
-            Text(newspaper.name)
-                .font(.system(.callout, design: .monospaced))
-                .foregroundStyle(Color(white: 0.82))
-                .lineLimit(1)
-                .frame(maxWidth: .infinity)
-                .frame(height: 44)
-                .background(bgColor)
+        ZStack(alignment: .top) {
+            // Barre normale (toujours présente, sous le picker)
+            VStack(spacing: 0) {
+                Text(newspaper.name)
+                    .font(.system(.callout, design: .monospaced))
+                    .foregroundStyle(Color(white: 0.82))
+                    .lineLimit(1)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 44)
+                    .background(bgColor)
 
-            Divider().overlay(faintColor)
+                Divider().overlay(faintColor)
 
-            // Sélecteur d'éditions : ScrollView qui contient TOUTES les éditions.
-            // Fermé = hauteur 44pt (édition active centrée, clipsée).
-            // Ouvert = hauteur 220pt, scroll libre.
-            editionPicker
+                // Édition active — tap = ouvre le picker
+                Text(dateLabel)
+                    .font(.system(.callout, design: .monospaced))
+                    .foregroundStyle(Color(white: 0.82))
+                    .lineLimit(1)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 44)
+                    .background(bgColor)
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        pickerCenteredDate = vm.currentDate
+                        withAnimation(.easeInOut(duration: 0.25)) { showEditionPicker = true }
+                    }
+
+                Divider().overlay(faintColor)
+            }
+
+            // Picker roulette — couvre tout depuis le haut (safeTop compris via padding(.top, safeTop))
+            if showEditionPicker {
+                editionPicker(pickerHeight: safeTop + 89)
+                    .transition(.opacity)
+                    .zIndex(20)
+            }
         }
         .offset(y: barVisible ? 0 : -(safeTop + barHeight))
         .opacity(barVisible ? 1 : 0)
@@ -435,52 +456,74 @@ struct JournalView: View {
         )
     }
 
-    // Hauteur barre : 44 nom + 1 sep + 44 picker fermé
+    // Hauteur barre fermée
     private var barHeight: CGFloat { 89 }
 
     @ViewBuilder
-    private var editionPicker: some View {
+    private func editionPicker(pickerHeight: CGFloat) -> some View {
+        // Roulette : 3 lignes visibles, ligne centrale = édition sélectionnée
+        // pickerHeight = hauteur totale du picker (couvre titre + édition)
+        let rowH: CGFloat = 44
+        let visibleRows: CGFloat = pickerHeight / rowH  // nb lignes visibles
+        let paddingRows = Int(visibleRows / 2)          // lignes vides haut/bas pour centrage
+
         ScrollViewReader { proxy in
-            ScrollView(.vertical, showsIndicators: false) {
-                VStack(spacing: 0) {
-                    ForEach(editions) { edition in
-                        let isCurrent = edition.date == vm.currentDate
-                        Button {
-                            if isCurrent {
-                                withAnimation(.easeInOut(duration: 0.22)) { showEditionPicker.toggle() }
-                            } else {
-                                withAnimation(.easeInOut(duration: 0.22)) { showEditionPicker = false }
-                                onEditionSelect(edition)
-                            }
-                        } label: {
+            ZStack {
+                bgColor.ignoresSafeArea()
+
+                // Indicateur ligne centrale
+                RoundedRectangle(cornerRadius: 0)
+                    .fill(Color(white: 0.18))
+                    .frame(height: rowH)
+                    .frame(maxWidth: .infinity)
+                    .offset(y: -rowH / 2 + pickerHeight / 2 - rowH)
+
+                ScrollView(.vertical, showsIndicators: false) {
+                    VStack(spacing: 0) {
+                        // Padding haut pour centrage
+                        ForEach(0..<paddingRows, id: \.self) { _ in
+                            Color.clear.frame(height: rowH)
+                        }
+
+                        ForEach(editions) { edition in
+                            let isCentered = edition.date == pickerCenteredDate
                             Text(editionDateLabel(edition.date))
                                 .font(.system(.callout, design: .monospaced))
-                                .foregroundStyle(isCurrent
-                                    ? (showEditionPicker ? activeColor : Color(white: 0.82))
-                                    : Color(white: 0.45))
+                                .foregroundStyle(isCentered ? activeColor : Color(white: 0.35))
                                 .lineLimit(1)
                                 .frame(maxWidth: .infinity)
-                                .frame(height: 44)
+                                .frame(height: rowH)
+                                .contentShape(Rectangle())
+                                .onTapGesture {
+                                    if isCentered {
+                                        // Confirme
+                                        withAnimation(.easeInOut(duration: 0.22)) { showEditionPicker = false }
+                                        if edition.date != vm.currentDate { onEditionSelect(edition) }
+                                    } else {
+                                        // Centre cette édition
+                                        withAnimation(.easeInOut(duration: 0.2)) {
+                                            pickerCenteredDate = edition.date
+                                            proxy.scrollTo(edition.date, anchor: .center)
+                                        }
+                                    }
+                                }
+                                .id(edition.date)
                         }
-                        .buttonStyle(.plain)
-                        .id(edition.date)
-                        Divider().overlay(faintColor)
+
+                        // Padding bas pour centrage
+                        ForEach(0..<paddingRows, id: \.self) { _ in
+                            Color.clear.frame(height: rowH)
+                        }
                     }
                 }
+                .frame(height: pickerHeight)
+                .onAppear {
+                    proxy.scrollTo(pickerCenteredDate, anchor: .center)
+                }
             }
-            .frame(height: showEditionPicker ? 220 : 44)
-            .background(bgColor)
-            .clipped()
-            .animation(.easeInOut(duration: 0.22), value: showEditionPicker)
-            .onAppear {
-                proxy.scrollTo(vm.currentDate, anchor: .center)
-            }
-            .onChange(of: vm.currentDate) { _, date in
-                proxy.scrollTo(date, anchor: .center)
-            }
-            .onChange(of: showEditionPicker) { _, open in
-                if open { proxy.scrollTo(vm.currentDate, anchor: .center) }
-            }
+            .frame(height: pickerHeight)
+            // Tap hors liste = ferme sans confirmer
+            .onTapGesture { }  // absorbe les taps résiduels
         }
         Divider().overlay(faintColor)
     }
