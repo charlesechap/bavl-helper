@@ -424,21 +424,15 @@ struct JournalView: View {
                 .frame(height: 44)
                 .background(bgColor)
                 .contentShape(Rectangle())
-                .gesture(
+                .simultaneousGesture(
                     DragGesture(minimumDistance: 30)
                         .onEnded { v in
                             guard abs(v.translation.width) > abs(v.translation.height) else { return }
                             guard let idx = editions.firstIndex(where: { $0.date == vm.currentDate }) else { return }
                             if v.translation.width < 0 {
-                                // swipe gauche = édition plus ancienne (index +1)
-                                if idx + 1 < editions.count {
-                                    onEditionSelect(editions[idx + 1])
-                                }
+                                if idx + 1 < editions.count { onEditionSelect(editions[idx + 1]) }
                             } else {
-                                // swipe droite = édition plus récente (index -1)
-                                if idx > 0 {
-                                    onEditionSelect(editions[idx - 1])
-                                }
+                                if idx > 0 { onEditionSelect(editions[idx - 1]) }
                             }
                         }
                 )
