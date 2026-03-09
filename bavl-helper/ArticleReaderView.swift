@@ -124,6 +124,8 @@ struct ArticleReaderView: View {
     let onDismiss: () -> Void
     let onJournal: () -> Void
 
+    @State private var showShare = false
+
     var body: some View {
         GeometryReader { geo in
             let safeTop = geo.safeAreaInsets.top
@@ -159,7 +161,28 @@ struct ArticleReaderView: View {
             }
             .ignoresSafeArea(edges: .top)
         }
+        .sheet(isPresented: $showShare) {
+            ShareSheet(items: [shareText])
+        }
         .preferredColorScheme(.dark)
+    }
+
+    private var shareText: String {
+        var parts: [String] = []
+        if let s = article.sectionName { parts.append(s.uppercased()) }
+        parts.append(article.title)
+        if let sub = article.subtitle, !sub.isEmpty { parts.append(sub) }
+        if let auth = article.author, !auth.isEmpty { parts.append("par " + auth) }
+        parts.append("")
+        for para in article.paragraphs {
+            switch para.style {
+            case .body: parts.append(para.text)
+            case .heading: parts.append("\n" + para.text)
+            default: break
+            }
+        }
+        parts.append("\n— " + newspaperName + ", " + (displayDate(article.date) ?? article.date))
+        return parts.joined(separator: "\n")
     }
 
     // MARK: - Header
@@ -233,14 +256,13 @@ struct ArticleReaderView: View {
                 .italic()
                 .fixedSize(horizontal: false, vertical: true)
         case .image:
-            VStack(alignment: .leading, spacing: 6) {
+            VStack(alignment: .leading, spacing: 0) {
                 if let url = para.imageURL {
-                    let ratio = para.nativeSize.width > 0
-                        ? para.nativeSize.height / para.nativeSize.width
-                        : 0.75
                     GeometryReader { geo in
                         let w = geo.size.width
-                        let h = w * ratio
+                        let r = para.nativeSize.width > 0
+                            ? para.nativeSize.height / para.nativeSize.width : 0.75
+                        let h = w * r
                         AsyncImage(url: url) { img in
                             img.resizable()
                                 .aspectRatio(contentMode: .fill)
@@ -252,12 +274,11 @@ struct ArticleReaderView: View {
                         }
                     }
                     .frame(height: {
-                        let screenW = UIScreen.main.bounds.width - 40
+                        let w = UIScreen.main.bounds.width
                         let r = para.nativeSize.width > 0
                             ? para.nativeSize.height / para.nativeSize.width : 0.75
-                        return screenW * r
+                        return w * r
                     }())
-                    .padding(.vertical, 4)
                 }
                 if !para.text.isEmpty {
                     Text(para.text)
@@ -265,9 +286,10 @@ struct ArticleReaderView: View {
                         .foregroundStyle(Color(white: 0.38))
                         .italic()
                         .padding(.horizontal, 20)
+                        .padding(.top, 6)
                 }
             }
-            .padding(.horizontal, -20)  // annuler le padding parent pour aller pleine largeur
+            .padding(.horizontal, -20)
             .padding(.bottom, 12)
         case .body:
             Text(para.text)
@@ -302,17 +324,25 @@ struct ArticleReaderView: View {
 
                 Spacer()
 
-                // Label édition centré (identique à la barre journal)
-                Text(articleDateLabel)
-                    .font(.system(.caption2, design: .monospaced))
-                    .foregroundStyle(Color(white: 0.35))
-                    .lineLimit(1)
+                // Titre cliquable → retour journal
+                Button(action: onJournal) {
+                    Text(articleDateLabel)
+                        .font(.system(.caption2, design: .monospaced))
+                        .foregroundStyle(Color(white: 0.35))
+                        .lineLimit(1)
+                }
+                .buttonStyle(.plain)
 
                 Spacer()
 
-                // Espace symétrique
-                Color.clear.frame(width: 44, height: 44)
-                    .padding(.trailing, 8)
+                // ↑ partager
+                Button { showShare = true } label: {
+                    Text("↑")
+                        .font(.system(.body, design: .monospaced))
+                        .foregroundStyle(Color(white: 0.82))
+                }
+                .frame(width: 44, height: 44)
+                .padding(.trailing, 8)
             }
             .frame(height: 44)
             .background(Color(red: 0.13, green: 0.13, blue: 0.13))
@@ -342,6 +372,15 @@ struct ArticleReaderView: View {
         fmt.dateStyle = .medium; fmt.timeStyle = .none; fmt.locale = Locale(identifier: "fr_CH")
         return fmt.string(from: d)
     }
+}
+
+// MARK: - ShareSheet
+private struct ShareSheet: UIViewControllerRepresentable {
+    let items: [Any]
+    func makeUIViewController(context: Context) -> UIActivityViewController {
+        UIActivityViewController(activityItems: items, applicationActivities: nil)
+    }
+    func updateUIViewController(_ vc: UIActivityViewController, context: Context) {}
 }
 
 // MARK: - Encoding fix
