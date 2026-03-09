@@ -498,6 +498,12 @@ struct PressReaderWebView: UIViewRepresentable {
         }
 
         private func loadTOC(issueId: String) {
+            // Éviter double-chargement du même issueId
+            guard issueId != currentIssueId else {
+                print("BAVL loadTOC skipped: same issueId=\(issueId)")
+                return
+            }
+            currentIssueId = issueId
             guard let url = URL(string: "https://s.prcdn.co/services/toc/?issue=\(issueId)&version=2&expungeVersion=")
             else { return }
             URLSession.shared.dataTask(with: URLRequest(url: url)) { [weak self] data, _, error in
