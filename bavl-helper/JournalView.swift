@@ -485,6 +485,18 @@ struct JournalView: View {
 
     // MARK: - Helpers
 
+    private func editionDateLabel(_ dateStr: String) -> String {
+        guard dateStr.count == 8 else { return "—" }
+        let fmt = DateFormatter()
+        fmt.dateFormat = "yyyyMMdd"
+        fmt.locale = Locale(identifier: "fr_CH")
+        guard let d = fmt.date(from: dateStr) else { return dateStr }
+        let out = DateFormatter()
+        out.dateFormat = "EEEE d MMMM yyyy"
+        out.locale = Locale(identifier: "fr_CH")
+        return out.string(from: d)
+    }
+
     private var dateLabel: String {
         let dateStr = vm.currentDate
         guard dateStr.count == 8 else { return "—" }
