@@ -161,6 +161,7 @@ struct ArticleReaderView: View {
     let allArticles: [ArticleMeta]
     let initialIndex: Int
     let newspaperName: String
+    let editionDate: String   // "20260309"
     let bearer: String
     let onJournal: () -> Void
 
@@ -169,10 +170,11 @@ struct ArticleReaderView: View {
     @State private var shareText: String = ""
     @State private var cache = ArticleCache()
 
-    init(allArticles: [ArticleMeta], initialIndex: Int, newspaperName: String, bearer: String, onJournal: @escaping () -> Void) {
+    init(allArticles: [ArticleMeta], initialIndex: Int, newspaperName: String, editionDate: String, bearer: String, onJournal: @escaping () -> Void) {
         self.allArticles = allArticles
         self.initialIndex = initialIndex
         self.newspaperName = newspaperName
+        self.editionDate = editionDate
         self.bearer = bearer
         self.onJournal = onJournal
         self._currentIndex = State(initialValue: initialIndex)
@@ -188,14 +190,13 @@ struct ArticleReaderView: View {
                     ForEach(Array(allArticles.enumerated()), id: \.offset) { idx, meta in
                         ArticlePageView(
                             meta: meta,
+                            nextMeta: idx + 1 < allArticles.count ? allArticles[idx + 1] : nil,
                             cache: cache,
                             bearer: bearer,
                             safeTop: safeTop,
                             isActive: idx == currentIndex,
-                            onShareReady: { text in
-                                shareText = text
-                                showShare = true
-                            }
+                            onNextArticle: { currentIndex = idx + 1 },
+                            onShare: { text in shareText = text; showShare = true }
                         )
                         .tag(idx)
                     }
@@ -241,33 +242,16 @@ struct ArticleReaderView: View {
     private func readerBar(safeTop: CGFloat) -> some View {
         VStack(spacing: 0) {
             HStack(alignment: .center, spacing: 0) {
-                Button(action: onJournal) {
-                    Text("←")
-                        .font(.system(.body, design: .monospaced))
-                        .foregroundStyle(Color(white: 0.82))
-                }
-                .frame(width: 44, height: 44)
-                .padding(.leading, 8)
-
                 Spacer()
-
                 Button(action: onJournal) {
                     Text(barLabel)
                         .font(.system(.caption2, design: .monospaced))
                         .foregroundStyle(Color(white: 0.35))
                         .lineLimit(1)
+                        .padding(.horizontal, 16)
                 }
                 .buttonStyle(.plain)
-
                 Spacer()
-
-                Button { showShare = true } label: {
-                    Text("↑")
-                        .font(.system(.body, design: .monospaced))
-                        .foregroundStyle(Color(white: 0.82))
-                }
-                .frame(width: 44, height: 44)
-                .padding(.trailing, 8)
             }
             .frame(height: 44)
             .background(Color(red: 0.13, green: 0.13, blue: 0.13))
@@ -277,10 +261,13 @@ struct ArticleReaderView: View {
     }
 
     private var barLabel: String {
-        guard currentIndex < allArticles.count else { return newspaperName }
-        let dateStr = "" // date sera dans ArticlePageView
-        _ = dateStr
-        return newspaperName
+        guard editionDate.count == 8 else { return newspaperName }
+        let fmt = DateFormatter(); fmt.dateFormat = "yyyyMMdd"
+        guard let d = fmt.date(from: editionDate) else { return newspaperName }
+        let disp = DateFormatter()
+        disp.dateStyle = .medium; disp.timeStyle = .none
+        disp.locale = Locale(identifier: "fr_CH")
+        return "\(newspaperName)  —  \(disp.string(from: d))"
     }
 }
 
@@ -288,11 +275,13 @@ struct ArticleReaderView: View {
 
 private struct ArticlePageView: View {
     let meta: ArticleMeta
+    let nextMeta: ArticleMeta?
     let cache: ArticleCache
     let bearer: String
     let safeTop: CGFloat
     let isActive: Bool
-    let onShareReady: (String) -> Void
+    let onNextArticle: () -> Void
+    let onShare: (String) -> Void
 
     @State private var article: ArticleContent? = nil
     @State private var loading = true
@@ -321,7 +310,7 @@ private struct ArticlePageView: View {
                                 .padding(.bottom, paragraphSpacing(para))
                         }
 
-                        Color.clear.frame(height: 60)
+                        articleFooter(art)
                     }
                 }
                 // Forcer le retour en haut à chaque activation de cette page
@@ -477,6 +466,142 @@ private struct ArticlePageView: View {
         guard let d = f.date(from: s) else { return nil }
         f.dateStyle = .medium; f.timeStyle = .none; f.locale = Locale(identifier: "fr_CH")
         return f.string(from: d)
+    }
+
+    // MARK: - Footer
+
+    private func buildShareText(_ art: ArticleContent) -> String {
+        var parts: [String] = []
+        if let s = art.sectionName { parts.append(s.uppercased()) }
+        parts.append(art.title)
+        if let sub = art.subtitle, !sub.isEmpty { parts.append(sub) }
+        if let auth = art.author, !auth.isEmpty { parts.append("par " + auth) }
+        parts.append("")
+        for para in art.paragraphs {
+            switch para.style {
+            case .body: parts.append(para.text)
+            case .heading: parts.append("\n" + para.text)
+            default: break
+            }
+        }
+        return parts.joined(separator: "\n")
+    }
+
+    @ViewBuilder
+    private func articleFooter(_ art: ArticleContent) -> some View {
+        let bg = Color(red: 0.10, green: 0.10, blue: 0.10)
+        let dim = Color(white: 0.35)
+        let faint = Color(white: 0.18)
+        let active = Color(white: 0.82)
+
+        VStack(spacing: 0) {
+            // ── Séparateur ──
+            Rectangle().fill(faint).frame(height: 1).padding(.bottom, 24)
+
+            // ── Actions ──
+            HStack(spacing: 0) {
+                // Partager
+                Button {
+                    onShare(buildShareText(art))
+                } label: {
+                    VStack(spacing: 6) {
+                        Text("↑")
+                            .font(.system(size: 20, design: .monospaced))
+                            .foregroundStyle(active)
+                        Text("partager")
+                            .font(.system(.caption2, design: .monospaced))
+                            .foregroundStyle(dim)
+                    }
+                    .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.plain)
+
+                // Copier texte
+                Button {
+                    UIPasteboard.general.string = buildShareText(art)
+                } label: {
+                    VStack(spacing: 6) {
+                        Text("⎘")
+                            .font(.system(size: 20, design: .monospaced))
+                            .foregroundStyle(active)
+                        Text("copier")
+                            .font(.system(.caption2, design: .monospaced))
+                            .foregroundStyle(dim)
+                    }
+                    .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.plain)
+
+                // Retour journal
+                Button(action: { }) {
+                    VStack(spacing: 6) {
+                        Text("≡")
+                            .font(.system(size: 20, design: .monospaced))
+                            .foregroundStyle(active)
+                        Text("journal")
+                            .font(.system(.caption2, design: .monospaced))
+                            .foregroundStyle(dim)
+                    }
+                    .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.plain)
+                // Note: onJournal n'est pas accessible ici (ArticlePageView est private)
+                // Le swipe down reste le geste principal pour retourner au journal
+            }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 16)
+
+            // ── Article suivant ──
+            if let next = nextMeta {
+                Divider().overlay(faint).padding(.horizontal, 20)
+
+                Button(action: onNextArticle) {
+                    HStack(alignment: .top, spacing: 12) {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("suivant".uppercased())
+                                .font(.system(.caption2, design: .monospaced))
+                                .foregroundStyle(dim)
+                                .tracking(1.5)
+                            Text(next.title)
+                                .font(.system(size: 15, weight: .medium))
+                                .foregroundStyle(active)
+                                .fixedSize(horizontal: false, vertical: true)
+                            if let sub = next.subtitle, !sub.isEmpty {
+                                Text(sub)
+                                    .font(.system(size: 13))
+                                    .foregroundStyle(Color(white: 0.50))
+                                    .lineLimit(2)
+                            }
+                            if let auth = next.author, !auth.isEmpty {
+                                Text(auth)
+                                    .font(.system(.caption2, design: .monospaced))
+                                    .foregroundStyle(dim)
+                                    .padding(.top, 2)
+                            }
+                        }
+                        Spacer(minLength: 8)
+                        if let thumbURL = next.thumbnailURL {
+                            AsyncImage(url: thumbURL) { img in
+                                img.resizable().aspectRatio(contentMode: .fill)
+                            } placeholder: {
+                                Color(white: 0.18)
+                            }
+                            .frame(width: 64, height: 64)
+                            .cornerRadius(4)
+                            .clipped()
+                        }
+                    }
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 16)
+                }
+                .buttonStyle(.plain)
+            }
+
+            // Safe area bottom
+            Color.clear.frame(height: 32)
+        }
+        .background(bg)
+        .padding(.top, 24)
     }
 }
 
