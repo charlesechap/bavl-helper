@@ -34,12 +34,13 @@ struct ArticleContent: Identifiable {
 
     static func parse(from json: [String: Any]) -> ArticleContent? {
         guard let id = json["id"] as? Int64 ?? (json["id"] as? Int).map(Int64.init),
-              let title = json["title"] as? String
+              let titleRaw = json["title"] as? String
         else { return nil }
+        let title = titleRaw.fixedEncoding
 
-        let subtitle = json["subtitle"] as? String
-        let author = json["author"] as? String
-        let sectionName = (json["issue"] as? [String: Any])?["sectionName"] as? String
+        let subtitle = (json["subtitle"] as? String)?.fixedEncoding
+        let author = (json["author"] as? String)?.fixedEncoding
+        let sectionName = ((json["issue"] as? [String: Any])?["sectionName"] as? String)?.fixedEncoding
 
         // Date depuis issue.date
         let dateStr = (json["issue"] as? [String: Any])?["date"] as? String ?? ""
@@ -64,7 +65,7 @@ struct ArticleContent: Identifiable {
                 }
                 guard let raw = p["text"] as? String else { continue }
                 // Nettoyer soft-hyphens et tirets conditionnels
-                let clean = raw
+                let clean = raw.fixedEncoding
                     .replacingOccurrences(of: "\u{00AD}", with: "") // soft hyphen
                     .replacingOccurrences(of: "\u{200B}", with: "") // zero-width space
                 let style: ArticleParagraph.ParagraphStyle
@@ -75,6 +76,24 @@ struct ArticleContent: Identifiable {
                 default: style = .body
                 }
                 paragraphs.append(ArticleParagraph(text: clean, style: style))
+            }
+        }
+
+        // Injecter images depuis json["images"] (absent des paragraphs)
+        if let imgs = json["images"] as? [[String: Any]] {
+            var imageParagraphs: [ArticleParagraph] = []
+            for img in imgs {
+                let rawKey = (img["regionKey"] as? String) ?? (img["id"] as? String) ?? ""
+                guard !rawKey.isEmpty,
+                      let encoded = rawKey.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
+                      let imgURL = URL(string: "https://i.prcdn.co/img?regionKey=\(encoded)&width=600")
+                else { continue }
+                let caption = (img["caption"] as? String)?.fixedEncoding ?? ""
+                imageParagraphs.append(ArticleParagraph(text: caption, style: .image, imageURL: imgURL))
+            }
+            // Insérer la première image après le 1er paragraphe body (chapeau)
+            if !imageParagraphs.isEmpty && !paragraphs.isEmpty {
+                paragraphs.insert(contentsOf: imageParagraphs, at: min(1, paragraphs.count))
             }
         }
 
@@ -298,5 +317,16 @@ struct ArticleReaderView: View {
         guard let d = fmt.date(from: dateStr) else { return nil }
         fmt.dateStyle = .medium; fmt.timeStyle = .none; fmt.locale = Locale(identifier: "fr_CH")
         return fmt.string(from: d)
+    }
+}
+
+// MARK: - Encoding fix
+private extension String {
+    /// Corrige le double-encoding UTF-8/Latin-1 fréquent dans l'API PressReader.
+    var fixedEncoding: String {
+        guard let latin1 = self.data(using: .isoLatin1),
+              let utf8 = String(data: latin1, encoding: .utf8)
+        else { return self }
+        return utf8
     }
 }
