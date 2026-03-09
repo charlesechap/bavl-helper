@@ -35,7 +35,7 @@ struct ArticleMeta: Identifiable {
            let first = imgs.first,
            let rk = first["id"] as? String, !rk.isEmpty,
            let encoded = rk.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) {
-            thumbURL = URL(string: "https://i.prcdn.co/img?regionKey=\(encoded)&width=120")
+            thumbURL = URL(string: "https://i.prcdn.co/img?regionKey=\(encoded)&width=216")
         } else {
             thumbURL = nil
         }
