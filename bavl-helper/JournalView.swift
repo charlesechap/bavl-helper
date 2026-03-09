@@ -193,6 +193,7 @@ struct JournalView: View {
     @State private var selectedArticleIndex: Int = 0
     @State private var loadingArticleId: Int64? = nil
     @State private var barVisible = true
+    @State private var showEditionPicker = false
     @State private var lastScrollY: CGFloat = 0
     @State private var previewMeta: ArticleMeta? = nil
     @State private var previewArticle: ArticleContent? = nil
@@ -222,7 +223,7 @@ struct JournalView: View {
                         articleList(safeTop: safeTop)
                     }
                 }
-                .padding(.top, safeTop + 81)  // hauteur barre = 81 (36 nom + 1 sep + 44 carousel)
+                .padding(.top, safeTop + 44)  // hauteur barre fermée = 44
                 .onScrollGeometryChange(for: CGFloat.self,
                     of: { $0.contentOffset.y },
                     action: { old, new in
@@ -404,19 +405,26 @@ struct JournalView: View {
 
     private func journalBar(safeTop: CGFloat) -> some View {
         VStack(spacing: 0) {
-            // Ligne 1 : nom du journal
-            Text(newspaper.name)
-                .font(.system(.subheadline, design: .monospaced, weight: .medium))
-                .foregroundStyle(Color(white: 0.75))
+            // Ligne 1 : date de l'édition active — tap = ouvre/ferme carousel
+            Text(dateLabel)
+                .font(.system(.callout, design: .monospaced))
+                .foregroundStyle(showEditionPicker ? activeColor : Color(white: 0.82))
                 .lineLimit(1)
                 .frame(maxWidth: .infinity)
-                .frame(height: 36)
+                .frame(height: 44)
                 .background(bgColor)
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    withAnimation(.easeInOut(duration: 0.22)) { showEditionPicker.toggle() }
+                }
 
             Divider().overlay(faintColor)
 
-            // Ligne 2 : carousel des éditions
-            editionCarousel
+            // Carousel : visible seulement si showEditionPicker
+            if showEditionPicker {
+                editionCarousel
+                    .transition(.move(edge: .top).combined(with: .opacity))
+            }
         }
         .offset(y: barVisible ? 0 : -(safeTop + barHeight))
         .opacity(barVisible ? 1 : 0)
@@ -432,8 +440,8 @@ struct JournalView: View {
         )
     }
 
-    // Hauteur totale de la barre : nom (36) + séparateur (1) + carousel (44)
-    private var barHeight: CGFloat { 81 }
+    // Hauteur de la barre fermée : 44pt
+    private var barHeight: CGFloat { 44 }
 
     @ViewBuilder
     private var editionCarousel: some View {
@@ -443,7 +451,10 @@ struct JournalView: View {
                     ForEach(editions) { edition in
                         let isCurrent = edition.date == vm.currentDate
                         Button {
-                            if !isCurrent { onEditionSelect(edition) }
+                            if !isCurrent {
+                                withAnimation(.easeInOut(duration: 0.22)) { showEditionPicker = false }
+                                onEditionSelect(edition)
+                            }
                         } label: {
                             Text(editionDateLabel(edition.date))
                                 .font(.system(.callout, design: .monospaced))
