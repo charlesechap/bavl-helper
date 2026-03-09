@@ -116,6 +116,46 @@ struct ArticleContent: Identifiable {
     }
 }
 
+// MARK: - Cache articles partagé
+@MainActor
+final class ArticleCache: ObservableObject {
+    private var cache: [Int64: ArticleContent] = [:]
+    private var inFlight: Set<Int64> = []
+
+    func get(_ id: Int64) -> ArticleContent? { cache[id] }
+
+    func prefetch(ids: [Int64], bearer: String) {
+        for id in ids where cache[id] == nil && !inFlight.contains(id) {
+            inFlight.insert(id)
+            fetch(id: id, bearer: bearer)
+        }
+    }
+
+    func fetch(id: Int64, bearer: String, completion: ((ArticleContent?) -> Void)? = nil) {
+        if let cached = cache[id] { completion?(cached); return }
+        guard let url = URL(string: "https://ingress.pressreader.com/services/v1/articles/\(id)/?articleFields=8191&isHyphenated=true&fullBody=true") else {
+            completion?(nil); return
+        }
+        var req = URLRequest(url: url, timeoutInterval: 15)
+        req.setValue("Bearer \(bearer)", forHTTPHeaderField: "Authorization")
+        req.setValue("application/json", forHTTPHeaderField: "Accept")
+        URLSession.shared.dataTask(with: req) { [weak self] data, _, _ in
+            guard let data,
+                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let art = ArticleContent.parse(from: json)
+            else {
+                DispatchQueue.main.async { self?.inFlight.remove(id); completion?(nil) }
+                return
+            }
+            DispatchQueue.main.async {
+                self?.cache[id] = art
+                self?.inFlight.remove(id)
+                completion?(art)
+            }
+        }.resume()
+    }
+}
+
 // MARK: - Vue principale
 
 struct ArticleReaderView: View {
@@ -128,6 +168,7 @@ struct ArticleReaderView: View {
     @State private var currentIndex: Int
     @State private var showShare = false
     @State private var shareText: String = ""
+    @StateObject private var cache = ArticleCache()
 
     init(allArticles: [ArticleMeta], initialIndex: Int, newspaperName: String, bearer: String, onJournal: @escaping () -> Void) {
         self.allArticles = allArticles
@@ -148,8 +189,10 @@ struct ArticleReaderView: View {
                     ForEach(Array(allArticles.enumerated()), id: \.offset) { idx, meta in
                         ArticlePageView(
                             meta: meta,
+                            cache: cache,
                             bearer: bearer,
                             safeTop: safeTop,
+                            isActive: idx == currentIndex,
                             onShareReady: { text in
                                 shareText = text
                                 showShare = true
@@ -160,6 +203,20 @@ struct ArticleReaderView: View {
                 }
                 .tabViewStyle(.page(indexDisplayMode: .never))
                 .ignoresSafeArea()
+                .onChange(of: currentIndex) { _, newIdx in
+                    // Prefetch article courant + voisins
+                    let ids = [newIdx - 1, newIdx, newIdx + 1]
+                        .filter { $0 >= 0 && $0 < allArticles.count }
+                        .map { allArticles[$0].id }
+                    cache.prefetch(ids: ids, bearer: bearer)
+                }
+                .onAppear {
+                    // Prefetch initial
+                    let ids = [initialIndex - 1, initialIndex, initialIndex + 1]
+                        .filter { $0 >= 0 && $0 < allArticles.count }
+                        .map { allArticles[$0].id }
+                    cache.prefetch(ids: ids, bearer: bearer)
+                }
                 .gesture(
                     DragGesture(minimumDistance: 40)
                         .onEnded { v in
@@ -232,12 +289,16 @@ struct ArticleReaderView: View {
 
 private struct ArticlePageView: View {
     let meta: ArticleMeta
+    let cache: ArticleCache
     let bearer: String
     let safeTop: CGFloat
+    let isActive: Bool
     let onShareReady: (String) -> Void
 
     @State private var article: ArticleContent? = nil
     @State private var loading = true
+    // scrollID forcé à changer à chaque fois qu'on revient sur cet article
+    @State private var scrollResetID = UUID()
 
     var body: some View {
         ZStack(alignment: .top) {
@@ -264,6 +325,8 @@ private struct ArticlePageView: View {
                         Color.clear.frame(height: 60)
                     }
                 }
+                // Forcer le retour en haut à chaque activation de cette page
+                .id(scrollResetID)
             } else if loading {
                 VStack {
                     Spacer()
@@ -275,25 +338,27 @@ private struct ArticlePageView: View {
                 .padding(.top, safeTop + 44)
             }
         }
-        .onAppear { fetchIfNeeded() }
+        .onAppear { loadFromCacheOrFetch() }
+        .onChange(of: isActive) { _, active in
+            if active {
+                // Revenir en haut à chaque fois qu'on arrive sur cette page
+                scrollResetID = UUID()
+                loadFromCacheOrFetch()
+            }
+        }
     }
 
-    private func fetchIfNeeded() {
-        guard article == nil else { return }
-        guard let url = URL(string: "https://ingress.pressreader.com/services/v1/articles/\(meta.id)/?articleFields=8191&isHyphenated=true&fullBody=true") else { return }
-        var req = URLRequest(url: url, timeoutInterval: 15)
-        req.setValue("Bearer \(bearer)", forHTTPHeaderField: "Authorization")
-        req.setValue("application/json", forHTTPHeaderField: "Accept")
-        URLSession.shared.dataTask(with: req) { data, _, _ in
-            guard let data,
-                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                  let art = ArticleContent.parse(from: json)
-            else { DispatchQueue.main.async { loading = false }; return }
-            DispatchQueue.main.async {
+    private func loadFromCacheOrFetch() {
+        if let cached = cache.get(meta.id) {
+            article = cached
+            loading = false
+        } else {
+            loading = true
+            cache.fetch(id: meta.id, bearer: bearer) { art in
                 article = art
-                loading = false
+                loading = art == nil ? false : false
             }
-        }.resume()
+        }
     }
 
     // MARK: - Header
