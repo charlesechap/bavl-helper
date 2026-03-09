@@ -256,12 +256,12 @@ struct ArticleReaderView: View {
         VStack(spacing: 0) {
             VStack(spacing: 3) {
                 Text(newspaperName)
-                    .font(.system(.caption2, design: .monospaced))
-                    .foregroundStyle(Color(white: 0.40))
+                    .font(.system(.callout, design: .monospaced))
+                    .foregroundStyle(Color(white: 0.82))
                     .lineLimit(1)
                 Text(barDateLabel)
                     .font(.system(.callout, design: .monospaced))
-                    .foregroundStyle(Color(white: 0.82))
+                    .foregroundStyle(Color(white: 0.55))
                     .lineLimit(1)
             }
             .frame(maxWidth: .infinity)
@@ -283,7 +283,8 @@ struct ArticleReaderView: View {
         let disp = DateFormatter()
         disp.dateFormat = "EEEE d MMMM yyyy"   // "lundi 9 mars 2026"
         disp.locale = Locale(identifier: "fr_CH")
-        return disp.string(from: d)
+        let s = disp.string(from: d)
+        return s.prefix(1).uppercased() + s.dropFirst()
     }
 }
 
