@@ -289,7 +289,8 @@ struct JournalView: View {
                             .tint(dimColor)
                             .frame(width: 72, height: 72)
                     } else if let thumbURL = article.thumbnailURL {
-                        PressImage(url: thumbURL, width: 72, height: 72, contentMode: .fill)
+                        PressImage(url: thumbURL, contentMode: .fill)
+                            .frame(width: 72, height: 72)
                             .cornerRadius(4)
                             .clipped()
                     } else if let p = article.pageNumber {
