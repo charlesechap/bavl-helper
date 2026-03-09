@@ -162,6 +162,7 @@ struct ArticleReaderView: View {
     let initialIndex: Int
     let newspaperName: String
     let editionDate: String   // "20260309"
+    let pressReaderPath: String  // ex: "switzerland/le-temps"
     let bearer: String
     let onJournal: () -> Void
 
@@ -170,11 +171,12 @@ struct ArticleReaderView: View {
     @State private var shareText: String = ""
     @State private var cache = ArticleCache()
 
-    init(allArticles: [ArticleMeta], initialIndex: Int, newspaperName: String, editionDate: String, bearer: String, onJournal: @escaping () -> Void) {
+    init(allArticles: [ArticleMeta], initialIndex: Int, newspaperName: String, editionDate: String, pressReaderPath: String, bearer: String, onJournal: @escaping () -> Void) {
         self.allArticles = allArticles
         self.initialIndex = initialIndex
         self.newspaperName = newspaperName
         self.editionDate = editionDate
+        self.pressReaderPath = pressReaderPath
         self.bearer = bearer
         self.onJournal = onJournal
         self._currentIndex = State(initialValue: initialIndex)
@@ -190,12 +192,16 @@ struct ArticleReaderView: View {
                     ForEach(Array(allArticles.enumerated()), id: \.offset) { idx, meta in
                         ArticlePageView(
                             meta: meta,
+                            prevMeta: idx > 0 ? allArticles[idx - 1] : nil,
                             nextMeta: idx + 1 < allArticles.count ? allArticles[idx + 1] : nil,
                             cache: cache,
                             bearer: bearer,
+                            pressReaderPath: pressReaderPath,
                             safeTop: safeTop,
                             isActive: idx == currentIndex,
+                            onPrevArticle: { currentIndex = max(0, idx - 1) },
                             onNextArticle: { currentIndex = idx + 1 },
+                            onJournal: onJournal,
                             onShare: { text in shareText = text; showShare = true }
                         )
                         .tag(idx)
@@ -275,12 +281,16 @@ struct ArticleReaderView: View {
 
 private struct ArticlePageView: View {
     let meta: ArticleMeta
+    let prevMeta: ArticleMeta?
     let nextMeta: ArticleMeta?
     let cache: ArticleCache
     let bearer: String
+    let pressReaderPath: String
     let safeTop: CGFloat
     let isActive: Bool
+    let onPrevArticle: () -> Void
     let onNextArticle: () -> Void
+    let onJournal: () -> Void
     let onShare: (String) -> Void
 
     @State private var article: ArticleContent? = nil
@@ -487,123 +497,153 @@ private struct ArticlePageView: View {
         return parts.joined(separator: "\n")
     }
 
+    private func articleURL(_ art: ArticleContent) -> URL? {
+        // URL PressReader web pour l'article
+        let path = pressReaderPath.isEmpty ? "publication" : pressReaderPath
+        return URL(string: "https://www.pressreader.com/\(path)/\(art.date)/\(art.id)/textview")
+    }
+
     @ViewBuilder
     private func articleFooter(_ art: ArticleContent) -> some View {
-        let bg = Color(red: 0.10, green: 0.10, blue: 0.10)
-        let dim = Color(white: 0.35)
+        let bg    = Color(red: 0.10, green: 0.10, blue: 0.10)
+        let dim   = Color(white: 0.35)
         let faint = Color(white: 0.18)
         let active = Color(white: 0.82)
 
         VStack(spacing: 0) {
-            // ── Séparateur ──
-            Rectangle().fill(faint).frame(height: 1).padding(.bottom, 24)
+            Rectangle().fill(faint).frame(height: 1)
 
-            // ── Actions ──
+            // ── Toolbar d'actions ──
             HStack(spacing: 0) {
-                // Partager
-                Button {
+                // ← Précédent
+                toolbarButton(
+                    icon: "chevron.left",
+                    label: "précédent",
+                    enabled: prevMeta != nil,
+                    active: active, dim: dim
+                ) { onPrevArticle() }
+
+                // Partager (SF: square.and.arrow.up)
+                toolbarButton(icon: "square.and.arrow.up", label: "partager", enabled: true, active: active, dim: dim) {
                     onShare(buildShareText(art))
-                } label: {
-                    VStack(spacing: 6) {
-                        Text("↑")
-                            .font(.system(size: 20, design: .monospaced))
-                            .foregroundStyle(active)
-                        Text("partager")
-                            .font(.system(.caption2, design: .monospaced))
-                            .foregroundStyle(dim)
-                    }
-                    .frame(maxWidth: .infinity)
                 }
-                .buttonStyle(.plain)
 
-                // Copier texte
-                Button {
-                    UIPasteboard.general.string = buildShareText(art)
-                } label: {
-                    VStack(spacing: 6) {
-                        Text("⎘")
-                            .font(.system(size: 20, design: .monospaced))
-                            .foregroundStyle(active)
-                        Text("copier")
-                            .font(.system(.caption2, design: .monospaced))
-                            .foregroundStyle(dim)
+                // Recharger
+                toolbarButton(icon: "arrow.clockwise", label: "recharger", enabled: true, active: active, dim: dim) {
+                    article = nil
+                    loading = true
+                    cache.fetch(id: meta.id, bearer: bearer) { fetched in
+                        article = fetched
+                        loading = false
+                        scrollResetID = UUID()
                     }
-                    .frame(maxWidth: .infinity)
                 }
-                .buttonStyle(.plain)
 
-                // Retour journal
-                Button(action: { }) {
-                    VStack(spacing: 6) {
-                        Text("≡")
-                            .font(.system(size: 20, design: .monospaced))
-                            .foregroundStyle(active)
-                        Text("journal")
-                            .font(.system(.caption2, design: .monospaced))
-                            .foregroundStyle(dim)
+                // Ouvrir dans Safari
+                if let url = articleURL(art) {
+                    toolbarButton(icon: "safari", label: "safari", enabled: true, active: active, dim: dim) {
+                        UIApplication.shared.open(url)
                     }
-                    .frame(maxWidth: .infinity)
+                    // Ouvrir dans PressReader (URL scheme)
+                    toolbarButton(icon: "arrow.up.forward.app", label: "pressreader", enabled: true, active: active, dim: dim) {
+                        let deeplink = URL(string: "pressreader://article/\(art.id)") ?? url
+                        if UIApplication.shared.canOpenURL(deeplink) {
+                            UIApplication.shared.open(deeplink)
+                        } else {
+                            UIApplication.shared.open(url)
+                        }
+                    }
                 }
-                .buttonStyle(.plain)
-                // Note: onJournal n'est pas accessible ici (ArticlePageView est private)
-                // Le swipe down reste le geste principal pour retourner au journal
+
+                // → Suivant
+                toolbarButton(
+                    icon: "chevron.right",
+                    label: "suivant",
+                    enabled: nextMeta != nil,
+                    active: active, dim: dim
+                ) { onNextArticle() }
             }
-            .padding(.horizontal, 20)
-            .padding(.vertical, 16)
+            .frame(height: 64)
+            .padding(.horizontal, 8)
+            .background(bg)
+
+            // ── Article précédent ──
+            if let prev = prevMeta {
+                Divider().overlay(faint).padding(.horizontal, 20)
+                adjacentArticleRow(meta: prev, label: "précédent", active: active, dim: dim, action: onPrevArticle)
+            }
 
             // ── Article suivant ──
             if let next = nextMeta {
                 Divider().overlay(faint).padding(.horizontal, 20)
-
-                Button(action: onNextArticle) {
-                    HStack(alignment: .top, spacing: 12) {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("suivant".uppercased())
-                                .font(.system(.caption2, design: .monospaced))
-                                .foregroundStyle(dim)
-                                .tracking(1.5)
-                            Text(next.title)
-                                .font(.system(size: 15, weight: .medium))
-                                .foregroundStyle(active)
-                                .fixedSize(horizontal: false, vertical: true)
-                            if let sub = next.subtitle, !sub.isEmpty {
-                                Text(sub)
-                                    .font(.system(size: 13))
-                                    .foregroundStyle(Color(white: 0.50))
-                                    .lineLimit(2)
-                            }
-                            if let auth = next.author, !auth.isEmpty {
-                                Text(auth)
-                                    .font(.system(.caption2, design: .monospaced))
-                                    .foregroundStyle(dim)
-                                    .padding(.top, 2)
-                            }
-                        }
-                        Spacer(minLength: 8)
-                        if let thumbURL = next.thumbnailURL {
-                            AsyncImage(url: thumbURL) { img in
-                                img.resizable().aspectRatio(contentMode: .fill)
-                            } placeholder: {
-                                Color(white: 0.18)
-                            }
-                            .frame(width: 64, height: 64)
-                            .cornerRadius(4)
-                            .clipped()
-                        }
-                    }
-                    .padding(.horizontal, 20)
-                    .padding(.vertical, 16)
-                }
-                .buttonStyle(.plain)
+                adjacentArticleRow(meta: next, label: "suivant", active: active, dim: dim, action: onNextArticle)
             }
 
-            // Safe area bottom
             Color.clear.frame(height: 32)
         }
         .background(bg)
         .padding(.top, 24)
     }
-}
+
+    @ViewBuilder
+    private func toolbarButton(
+        icon: String, label: String, enabled: Bool,
+        active: Color, dim: Color,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            VStack(spacing: 4) {
+                Image(systemName: icon)
+                    .font(.system(size: 18))
+                    .foregroundStyle(enabled ? active : dim.opacity(0.4))
+                Text(label)
+                    .font(.system(size: 9, design: .monospaced))
+                    .foregroundStyle(enabled ? dim : dim.opacity(0.4))
+            }
+            .frame(maxWidth: .infinity)
+        }
+        .buttonStyle(.plain)
+        .disabled(!enabled)
+    }
+
+    @ViewBuilder
+    private func adjacentArticleRow(
+        meta: ArticleMeta, label: String,
+        active: Color, dim: Color,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            HStack(alignment: .top, spacing: 12) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(label.uppercased())
+                        .font(.system(.caption2, design: .monospaced))
+                        .foregroundStyle(dim)
+                        .tracking(1.5)
+                    Text(meta.title)
+                        .font(.system(size: 15, weight: .medium))
+                        .foregroundStyle(active)
+                        .fixedSize(horizontal: false, vertical: true)
+                    if let sub = meta.subtitle, !sub.isEmpty {
+                        Text(sub)
+                            .font(.system(size: 13))
+                            .foregroundStyle(Color(white: 0.50))
+                            .lineLimit(2)
+                    }
+                    if let auth = meta.author, !auth.isEmpty {
+                        Text(auth)
+                            .font(.system(.caption2, design: .monospaced))
+                            .foregroundStyle(dim)
+                            .padding(.top, 2)
+                    }
+                }
+                Spacer(minLength: 8)
+            }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 14)
+        }
+        .buttonStyle(.plain)
+    }
+
 
 // MARK: - ShareSheet
 private struct ShareSheet: UIViewControllerRepresentable {
