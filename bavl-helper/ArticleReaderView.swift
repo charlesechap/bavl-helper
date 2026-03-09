@@ -544,22 +544,11 @@ private struct ArticlePageView: View {
                     toolbarButton(icon: "safari", label: "safari", enabled: true, active: active, dim: dim) {
                         UIApplication.shared.open(url)
                     }
-                    // Ouvrir dans PressReader
-                    toolbarButton(icon: "arrow.up.forward.app", label: "pressreader", enabled: true, active: active, dim: dim) {
-                        let deeplink = URL(string: "pressreader://article/\(art.id)") ?? url
-                        if UIApplication.shared.canOpenURL(deeplink) {
-                            UIApplication.shared.open(deeplink)
-                        } else {
-                            UIApplication.shared.open(url)
-                        }
-                    }
                 }
             }
             .frame(height: 64)
             .padding(.horizontal, 8)
             .background(bg)
-
-            Color.clear.frame(height: 32)
         }
         .background(bg)
         .padding(.top, 24)
