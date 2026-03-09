@@ -195,6 +195,8 @@ struct JournalView: View {
     @State private var barVisible = true
     @State private var dateOffset: CGFloat = 0
     @State private var dateOpacity: Double = 1
+    @State private var nextDateLabel: String = ""
+    @State private var nextDateOffset: CGFloat = 0
     @State private var lastScrollY: CGFloat = 0
     @State private var previewMeta: ArticleMeta? = nil
     @State private var previewArticle: ArticleContent? = nil
@@ -224,7 +226,8 @@ struct JournalView: View {
                         articleList(safeTop: safeTop)
                     }
                 }
-                .padding(.top, safeTop + 89)  // hauteur barre fermée = 89
+                .padding(.top, barVisible ? safeTop + 89 : 0)  // suit la barre
+                .animation(.easeInOut(duration: 0.22), value: barVisible)mée = 89
                 .onScrollGeometryChange(for: CGFloat.self,
                     of: { $0.contentOffset.y },
                     action: { old, new in
@@ -418,17 +421,32 @@ struct JournalView: View {
             Divider().overlay(faintColor)
 
             // Date de l'édition — swipe suit le doigt, gauche = plus récente, droite = plus ancienne
-            Text(dateLabel)
-                .font(.system(.callout, design: .monospaced))
-                .foregroundStyle(Color(white: 0.82))
-                .lineLimit(1)
-                .frame(maxWidth: .infinity)
-                .frame(height: 44)
-                .background(bgColor)
-                .contentShape(Rectangle())
-                .offset(x: dateOffset)
-                .opacity(dateOpacity)
-                .simultaneousGesture(
+            ZStack {
+                // Date entrante (glisse depuis le côté opposé)
+                if !nextDateLabel.isEmpty {
+                    Text(nextDateLabel)
+                        .font(.system(.callout, design: .monospaced))
+                        .foregroundStyle(Color(white: 0.82))
+                        .lineLimit(1)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 44)
+                        .offset(x: nextDateOffset)
+                }
+                // Date courante
+                Text(dateLabel)
+                    .font(.system(.callout, design: .monospaced))
+                    .foregroundStyle(Color(white: 0.82))
+                    .lineLimit(1)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 44)
+                    .offset(x: dateOffset)
+                    .opacity(dateOpacity)
+            }
+            .frame(height: 44)
+            .background(bgColor)
+            .contentShape(Rectangle())
+            .clipped()
+            .simultaneousGesture(
                     DragGesture(minimumDistance: 10)
                         .onChanged { v in
                             guard abs(v.translation.width) > abs(v.translation.height) else { return }
@@ -447,19 +465,22 @@ struct JournalView: View {
                             let goNext = v.translation.width < 0 && idx > 0
                             let goPrev = v.translation.width > 0 && idx + 1 < editions.count
                             if goNext || goPrev {
-                                let direction: CGFloat = v.translation.width < 0 ? -400 : 400
-                                withAnimation(.easeIn(duration: 0.18)) {
-                                    dateOffset = direction
+                                let exitDir: CGFloat = v.translation.width < 0 ? -400 : 400
+                                let target = goNext ? editions[idx - 1] : editions[idx + 1]
+                                // Préparer la date entrante hors champ côté opposé
+                                nextDateLabel = editionDateLabel(target.date)
+                                nextDateOffset = -exitDir
+                                withAnimation(.easeInOut(duration: 0.22)) {
+                                    dateOffset = exitDir
                                     dateOpacity = 0
+                                    nextDateOffset = 0
                                 }
-                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.18) {
-                                    dateOffset = -direction
-                                    let target = goNext ? editions[idx - 1] : editions[idx + 1]
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.22) {
                                     onEditionSelect(target)
-                                    withAnimation(.easeOut(duration: 0.18)) {
-                                        dateOffset = 0
-                                        dateOpacity = 1
-                                    }
+                                    dateOffset = 0
+                                    dateOpacity = 1
+                                    nextDateLabel = ""
+                                    nextDateOffset = 0
                                 }
                             } else {
                                 withAnimation(.easeOut(duration: 0.2)) { dateOffset = 0 }
