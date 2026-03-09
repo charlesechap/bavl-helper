@@ -297,6 +297,8 @@ private struct ArticlePageView: View {
     @State private var loading = true
     // scrollID forcé à changer à chaque fois qu'on revient sur cet article
     @State private var scrollResetID = UUID()
+    @State private var barVisible = true
+    @State private var lastScrollY: CGFloat = 0
 
     var body: some View {
         ZStack(alignment: .top) {
@@ -325,6 +327,20 @@ private struct ArticlePageView: View {
                 }
                 // Forcer le retour en haut à chaque activation de cette page
                 .id(scrollResetID)
+                .onScrollGeometryChange(for: CGFloat.self,
+                    of: { $0.contentOffset.y },
+                    action: { old, new in
+                        let delta = new - lastScrollY
+                        lastScrollY = new
+                        if new <= 0 {
+                            barVisible = true
+                        } else if delta > 6 {
+                            barVisible = false
+                        } else if delta < -6 {
+                            barVisible = true
+                        }
+                    }
+                )
             } else if loading {
                 VStack {
                     Spacer()
