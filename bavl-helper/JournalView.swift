@@ -223,7 +223,7 @@ struct JournalView: View {
                         articleList(safeTop: safeTop)
                     }
                 }
-                .padding(.top, safeTop + 44)  // hauteur barre fermée = 44
+                .padding(.top, safeTop + 89)  // hauteur barre fermée = 89
                 .onScrollGeometryChange(for: CGFloat.self,
                     of: { $0.contentOffset.y },
                     action: { old, new in
@@ -405,10 +405,21 @@ struct JournalView: View {
 
     private func journalBar(safeTop: CGFloat) -> some View {
         VStack(spacing: 0) {
-            // Ligne 1 : date de l'édition active — tap = ouvre/ferme carousel
+            // Nom du journal
+            Text(newspaper.name)
+                .font(.system(.callout, design: .monospaced))
+                .foregroundStyle(Color(white: 0.82))
+                .lineLimit(1)
+                .frame(maxWidth: .infinity)
+                .frame(height: 44)
+                .background(bgColor)
+
+            Divider().overlay(faintColor)
+
+            // Date de l'édition active — tap = ouvre/ferme carousel
             Text(dateLabel)
                 .font(.system(.callout, design: .monospaced))
-                .foregroundStyle(showEditionPicker ? activeColor : Color(white: 0.82))
+                .foregroundStyle(showEditionPicker ? activeColor : Color(white: 0.55))
                 .lineLimit(1)
                 .frame(maxWidth: .infinity)
                 .frame(height: 44)
@@ -441,7 +452,7 @@ struct JournalView: View {
     }
 
     // Hauteur de la barre fermée : 44pt
-    private var barHeight: CGFloat { 44 }
+    private var barHeight: CGFloat { 89 }  // 44 nom + 1 sep + 44 date
 
     @ViewBuilder
     private var editionCarousel: some View {
@@ -494,7 +505,8 @@ struct JournalView: View {
         let out = DateFormatter()
         out.dateFormat = "EEEE d MMMM yyyy"
         out.locale = Locale(identifier: "fr_CH")
-        return out.string(from: d)
+        let s = out.string(from: d)
+        return s.prefix(1).uppercased() + s.dropFirst()
     }
 
     private var dateLabel: String {
