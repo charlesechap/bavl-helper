@@ -87,12 +87,13 @@ struct ArticleContent: Identifiable {
                 guard !rawKey.isEmpty,
                       let encoded = rawKey.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed)
                 else { continue }
-                // Ne pas upscaler au-delà de la résolution native
+                // Filtrer icônes/filets, ne pas upscaler au-delà du natif
                 let sizeDict = img["size"] as? [String: Any]
                 let nativeW = (sizeDict?["width"] as? Int) ?? (sizeDict?["width"] as? Double).map { Int($0) } ?? 0
                 let nativeH = (sizeDict?["height"] as? Int) ?? (sizeDict?["height"] as? Double).map { Int($0) } ?? 0
+                // Ignorer images trop petites (icônes, filets graphiques)
+                guard nativeW >= 100 && nativeH >= 100 else { continue }
                 let targetW = nativeW > 0 ? min(nativeW, 1170) : 1170
-                print("IMG nativeW=\(nativeW) nativeH=\(nativeH) targetW=\(targetW) key=\(rawKey.prefix(12))")
                 guard let imgURL = URL(string: "https://i.prcdn.co/img?regionKey=\(encoded)&width=\(targetW)")
                 else { continue }
                 let caption = (img["caption"] as? String)?.fixedEncoding ?? ""
@@ -236,8 +237,9 @@ struct ArticleReaderView: View {
                             .frame(maxWidth: .infinity)
                     } placeholder: {
                         Color(white: 0.18)
-                            .frame(maxWidth: .infinity, minHeight: 160)
+                            .frame(maxWidth: .infinity, minHeight: 120)
                     }
+                    .padding(.vertical, 4)
                 }
                 if !para.text.isEmpty {
                     Text(para.text)
