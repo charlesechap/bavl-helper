@@ -88,8 +88,11 @@ struct ArticleContent: Identifiable {
                       let encoded = rawKey.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed)
                 else { continue }
                 // Ne pas upscaler au-delà de la résolution native
-                let nativeW = (img["size"] as? [String: Any]).flatMap { $0["width"] as? Int } ?? 0
+                let sizeDict = img["size"] as? [String: Any]
+                let nativeW = (sizeDict?["width"] as? Int) ?? (sizeDict?["width"] as? Double).map { Int($0) } ?? 0
+                let nativeH = (sizeDict?["height"] as? Int) ?? (sizeDict?["height"] as? Double).map { Int($0) } ?? 0
                 let targetW = nativeW > 0 ? min(nativeW, 1170) : 1170
+                print("IMG nativeW=\(nativeW) nativeH=\(nativeH) targetW=\(targetW) key=\(rawKey.prefix(12))")
                 guard let imgURL = URL(string: "https://i.prcdn.co/img?regionKey=\(encoded)&width=\(targetW)")
                 else { continue }
                 let caption = (img["caption"] as? String)?.fixedEncoding ?? ""
