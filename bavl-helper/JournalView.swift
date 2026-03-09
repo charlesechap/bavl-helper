@@ -65,7 +65,7 @@ class JournalViewModel: ObservableObject {
 
     enum LoadState: Equatable { case idle, loading, ready, error(String) }
 
-    private var bearerToken: String = ""
+    private(set) var bearerToken: String = ""
     private var pressReaderPath: String = ""
 
     func onBearerReady(token: String, path: String) {
@@ -190,8 +190,12 @@ struct JournalView: View {
     let onEditionSelect: (PressReaderEdition) -> Void
 
     @State private var selectedArticle: ArticleContent? = nil
+    @State private var selectedArticleIndex: Int = 0
     @State private var loadingArticleId: Int64? = nil
     @State private var showEditionPicker = false
+    @State private var previewMeta: ArticleMeta? = nil
+    @State private var previewArticle: ArticleContent? = nil
+    @State private var loadingPreviewId: Int64? = nil
 
     private let bgColor = Color(red: 0.13, green: 0.13, blue: 0.13)
     private let activeColor = Color(white: 0.82)
@@ -228,15 +232,49 @@ struct JournalView: View {
                 }
             }
             .ignoresSafeArea(edges: .top)
+            .gesture(
+                DragGesture(minimumDistance: 40)
+                    .onEnded { v in
+                        // Swipe down depuis le haut → fermer journal
+                        if v.translation.height > 80 && abs(v.translation.width) < 60 {
+                            onDismiss()
+                        }
+                    }
+            )
         }
-        .sheet(item: $selectedArticle) { article in
+        // Sheet article (TabView multi-articles)
+        .sheet(item: $selectedArticle) { _ in
             ArticleReaderView(
-                article: article,
+                allArticles: flatArticles,
+                initialIndex: selectedArticleIndex,
                 newspaperName: newspaper.name,
-                onDismiss: { selectedArticle = nil },
+                bearer: bearerToken,
                 onJournal: { selectedArticle = nil }
             )
             .presentationCornerRadius(0)
+        }
+        // Sheet aperçu long press
+        .sheet(item: $previewMeta) { meta in
+            ArticlePreviewSheet(
+                meta: meta,
+                article: previewArticle,
+                onRead: {
+                    if let art = previewArticle {
+                        let idx = flatArticles.firstIndex(where: { $0.id == meta.id }) ?? 0
+                        previewMeta = nil
+                        previewArticle = nil
+                        selectedArticleIndex = idx
+                        selectedArticle = art
+                    }
+                },
+                onDismiss: {
+                    previewMeta = nil
+                    previewArticle = nil
+                }
+            )
+            .presentationDetents([.medium, .large])
+            .presentationDragIndicator(.visible)
+            .preferredColorScheme(.dark)
         }
         .preferredColorScheme(.dark)
     }
@@ -267,7 +305,10 @@ struct JournalView: View {
             loadingArticleId = article.id
             vm.fetchArticle(id: article.id) { content in
                 loadingArticleId = nil
-                if let content { selectedArticle = content }
+                if let content {
+                    selectedArticleIndex = flatArticles.firstIndex(where: { $0.id == article.id }) ?? 0
+                    selectedArticle = content
+                }
             }
         } label: {
             HStack(alignment: .top, spacing: 12) {
@@ -326,6 +367,15 @@ struct JournalView: View {
             .padding(.vertical, 12)
         }
         .buttonStyle(.plain)
+        .onLongPressGesture(minimumDuration: 0.4) {
+            guard loadingPreviewId == nil else { return }
+            loadingPreviewId = article.id
+            previewMeta = article
+            vm.fetchArticle(id: article.id) { content in
+                loadingPreviewId = nil
+                previewArticle = content
+            }
+        }
     }
 
     private func sectionHeader(_ name: String) -> some View {
@@ -438,6 +488,14 @@ struct JournalView: View {
         return "\(newspaper.name)  —  \(disp.string(from: d))"
     }
 
+    // Liste plate de tous les articles (pour TabView navigation)
+    private var flatArticles: [ArticleMeta] {
+        vm.sections.flatMap { $0.articles }
+    }
+
+    // Expose le token pour passer à ArticleReaderView
+    private var bearerToken: String { vm.bearerToken }
+
     private func centeredMessage(_ msg: String) -> some View {
         VStack {
             Spacer()
@@ -447,6 +505,96 @@ struct JournalView: View {
             Spacer()
         }
         .frame(maxWidth: .infinity)
+    }
+}
+
+// MARK: - ArticlePreviewSheet
+private struct ArticlePreviewSheet: View {
+    let meta: ArticleMeta
+    let article: ArticleContent?
+    let onRead: () -> Void
+    let onDismiss: () -> Void
+
+    private let bg = Color(red: 0.10, green: 0.10, blue: 0.10)
+    private let active = Color(white: 0.88)
+    private let dim = Color(white: 0.45)
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            // Handle bar
+            HStack {
+                Spacer()
+                RoundedRectangle(cornerRadius: 2)
+                    .fill(Color(white: 0.30))
+                    .frame(width: 36, height: 4)
+                Spacer()
+            }
+            .padding(.top, 12)
+            .padding(.bottom, 16)
+
+            ScrollView {
+                VStack(alignment: .leading, spacing: 12) {
+                    if let sec = meta.sectionName {
+                        Text(sec.uppercased())
+                            .font(.system(.caption2, design: .monospaced))
+                            .foregroundStyle(dim)
+                            .tracking(1.5)
+                    }
+                    Text(meta.title)
+                        .font(.system(size: 20, weight: .bold))
+                        .foregroundStyle(active)
+                    if let sub = meta.subtitle, !sub.isEmpty {
+                        Text(sub)
+                            .font(.system(size: 14))
+                            .foregroundStyle(Color(white: 0.60))
+                    }
+                    if let auth = meta.author, !auth.isEmpty {
+                        Text(auth)
+                            .font(.system(.caption, design: .default))
+                            .foregroundStyle(dim)
+                    }
+
+                    Divider().overlay(Color(white: 0.20)).padding(.vertical, 4)
+
+                    if let art = article {
+                        // Premiers paragraphes body
+                        let preview = art.paragraphs
+                            .filter { if case .body = $0.style { return true }; return false }
+                            .prefix(3)
+                        ForEach(Array(preview)) { para in
+                            Text(para.text)
+                                .font(.system(size: 15))
+                                .foregroundStyle(Color(white: 0.75))
+                                .lineSpacing(4)
+                        }
+                    } else {
+                        ProgressView()
+                            .tint(dim)
+                            .frame(maxWidth: .infinity, alignment: .center)
+                            .padding(.vertical, 20)
+                    }
+
+                    Color.clear.frame(height: 20)
+                }
+                .padding(.horizontal, 20)
+            }
+
+            // Bouton Lire
+            Button(action: onRead) {
+                Text("Lire l'article")
+                    .font(.system(.body, design: .monospaced))
+                    .foregroundStyle(bg)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 14)
+                    .background(active)
+            }
+            .buttonStyle(.plain)
+            .disabled(article == nil)
+            .padding(.horizontal, 20)
+            .padding(.bottom, 24)
+        }
+        .background(bg.ignoresSafeArea())
+        .preferredColorScheme(.dark)
     }
 }
 
