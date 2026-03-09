@@ -304,24 +304,17 @@ struct ArticleReaderView: View {
 
                 Spacer()
 
-                // Titre court centré
-                Text(article.title)
+                // Label édition centré (identique à la barre journal)
+                Text(articleDateLabel)
                     .font(.system(.caption2, design: .monospaced))
                     .foregroundStyle(Color(white: 0.35))
                     .lineLimit(1)
-                    .truncationMode(.tail)
-                    .frame(maxWidth: 200)
 
                 Spacer()
 
-                // X fermer
-                Button(action: onDismiss) {
-                    Text("X")
-                        .font(.system(.body, design: .monospaced))
-                        .foregroundStyle(Color(white: 0.82))
-                }
-                .frame(width: 44, height: 44)
-                .padding(.trailing, 8)
+                // Espace symétrique
+                Color.clear.frame(width: 44, height: 44)
+                    .padding(.trailing, 8)
             }
             .frame(height: 44)
             .background(Color(red: 0.13, green: 0.13, blue: 0.13))
@@ -331,6 +324,17 @@ struct ArticleReaderView: View {
     }
 
     // MARK: - Helpers
+
+    private var articleDateLabel: String {
+        guard article.date.count == 8 else { return "" }
+        let fmt = DateFormatter()
+        fmt.dateFormat = "yyyyMMdd"
+        guard let d = fmt.date(from: article.date) else { return "" }
+        let disp = DateFormatter()
+        disp.dateStyle = .medium; disp.timeStyle = .none
+        disp.locale = Locale(identifier: "fr_CH")
+        return disp.string(from: d)
+    }
 
     private func displayDate(_ dateStr: String) -> String? {
         guard dateStr.count == 8 else { return nil }
