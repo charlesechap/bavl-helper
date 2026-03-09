@@ -226,10 +226,7 @@ struct JournalView: View {
                 // TerminalBar
                 journalBar(safeTop: safeTop)
 
-                // Edition picker
-                if showEditionPicker {
-                    editionPickerOverlay(safeTop: safeTop)
-                }
+                // Edition picker (géré via .sheet ci-dessous)
             }
             .ignoresSafeArea(edges: .top)
         }
@@ -268,6 +265,11 @@ struct JournalView: View {
             .presentationDetents([.medium, .large])
             .presentationDragIndicator(.visible)
             .preferredColorScheme(.dark)
+        }
+        .sheet(isPresented: $showEditionPicker) {
+            editionPickerSheet
+                .presentationDetents([.medium, .large])
+                .presentationDragIndicator(.visible)
         }
         .preferredColorScheme(.dark)
     }
@@ -434,44 +436,46 @@ struct JournalView: View {
 
     // MARK: - Edition picker
 
-    private func editionPickerOverlay(safeTop: CGFloat) -> some View {
-        ZStack(alignment: .top) {
-            Color.black.opacity(0.5)
-                .ignoresSafeArea()
-                .onTapGesture { showEditionPicker = false }
-
-            VStack(spacing: 0) {
-                Color.clear.frame(height: safeTop + 44)
-                ScrollView {
-                    VStack(spacing: 0) {
-                        ForEach(editions) { edition in
-                            Button {
-                                showEditionPicker = false
-                                onEditionSelect(edition)
-                            } label: {
-                                HStack {
-                                    Text(edition.displayLabel)
-                                        .font(.system(.body, design: .monospaced))
-                                        .foregroundStyle(edition.date == vm.currentDate ? activeColor : Color(white: 0.60))
-                                    Spacer()
-                                    if edition.date == vm.currentDate {
-                                        Text("●")
-                                            .font(.system(size: 8))
-                                            .foregroundStyle(activeColor)
-                                    }
-                                }
-                                .padding(.horizontal, 20)
-                                .padding(.vertical, 12)
+    private var editionPickerSheet: some View {
+        NavigationView {
+            List {
+                ForEach(editions) { edition in
+                    Button {
+                        showEditionPicker = false
+                        onEditionSelect(edition)
+                    } label: {
+                        HStack {
+                            Text(edition.displayLabel)
+                                .font(.system(.body, design: .monospaced))
+                                .foregroundStyle(edition.date == vm.currentDate ? activeColor : Color(white: 0.75))
+                            Spacer()
+                            if edition.date == vm.currentDate {
+                                Image(systemName: "checkmark")
+                                    .font(.system(size: 12, weight: .semibold))
+                                    .foregroundStyle(activeColor)
                             }
-                            .buttonStyle(.plain)
-                            Divider().overlay(faintColor).padding(.horizontal, 16)
                         }
                     }
-                    .background(bgColor)
+                    .buttonStyle(.plain)
+                    .listRowBackground(bgColor)
                 }
-                .frame(maxHeight: 400)
-                .background(bgColor)
             }
+            .listStyle(.plain)
+            .background(bgColor)
+            .scrollContentBackground(.hidden)
+            .navigationTitle(newspaper.name)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Fermer") { showEditionPicker = false }
+                        .font(.system(.body, design: .monospaced))
+                        .foregroundStyle(activeColor)
+                }
+            }
+        }
+        .preferredColorScheme(.dark)
+        .onAppear {
+            // Scroll vers l'édition courante — via scrollPosition si dispo
         }
     }
 
