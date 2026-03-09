@@ -194,6 +194,8 @@ struct JournalView: View {
     @State private var loadingArticleId: Int64? = nil
     @State private var barVisible = true
     @State private var lastScrollY: CGFloat = 0
+    @State private var editionInsertEdge: Edge = .trailing
+    @State private var editionRemoveEdge: Edge = .leading
     @State private var previewMeta: ArticleMeta? = nil
     @State private var previewArticle: ArticleContent? = nil
     @State private var loadingPreviewId: Int64? = nil
@@ -209,39 +211,12 @@ struct JournalView: View {
             ZStack(alignment: .top) {
                 bgColor.ignoresSafeArea()
 
-                // Contenu principal : TabView paginé par édition
-                if editions.isEmpty {
-                    switch vm.state {
-                    case .idle:   centeredMessage("Connexion en cours…")
-                    case .loading: centeredMessage("Chargement du journal…")
-                    case .error(let msg): centeredMessage("Erreur : \(msg)")
-                    case .ready:  articleList(safeTop: safeTop)
-                    }
-                } else {
-                    TabView(selection: Binding(
-                        get: { vm.currentDate },
-                        set: { date in
-                            if let ed = editions.first(where: { $0.date == date }), date != vm.currentDate {
-                                onEditionSelect(ed)
-                            }
-                        }
-                    )) {
-                        ForEach(editions) { edition in
-                            Group {
-                                if edition.date == vm.currentDate {
-                                    switch vm.state {
-                                    case .ready: articleList(safeTop: safeTop)
-                                    default:     centeredMessage("Chargement…")
-                                    }
-                                } else {
-                                    centeredMessage(editionDateLabel(edition.date))
-                                }
-                            }
-                            .tag(edition.date)
-                        }
-                    }
-                    .tabViewStyle(.page(indexDisplayMode: .never))
-                    .ignoresSafeArea()
+                // Contenu principal
+                switch vm.state {
+                case .idle:    centeredMessage("Connexion en cours…")
+                case .loading: centeredMessage("Chargement du journal…")
+                case .error(let msg): centeredMessage("Erreur : \(msg)")
+                case .ready:   articleList(safeTop: safeTop)
                 }
 
 
@@ -444,6 +419,11 @@ struct JournalView: View {
                 .frame(maxWidth: .infinity)
                 .frame(height: 44)
                 .background(bgColor)
+                .id(vm.currentDate)          // force transition à chaque changement
+                .transition(.asymmetric(
+                    insertion: .move(edge: editionInsertEdge).combined(with: .opacity),
+                    removal:   .move(edge: editionRemoveEdge).combined(with: .opacity)
+                ))
 
             Divider().overlay(faintColor)
         }
@@ -452,9 +432,23 @@ struct JournalView: View {
         .animation(.easeInOut(duration: 0.22), value: barVisible)
         .padding(.top, safeTop)
         .gesture(
-            DragGesture(minimumDistance: 40)
+            DragGesture(minimumDistance: 30)
                 .onEnded { v in
-                    if v.translation.height > 60 && abs(v.translation.width) < 80 {
+                    let isHoriz = abs(v.translation.width) > abs(v.translation.height)
+                    if isHoriz {
+                        guard let idx = editions.firstIndex(where: { $0.date == vm.currentDate }) else { return }
+                        if v.translation.width < -30 && idx > 0 {
+                            // swipe gauche = plus récente
+                            editionInsertEdge = .trailing
+                            editionRemoveEdge = .leading
+                            withAnimation(.easeInOut(duration: 0.22)) { onEditionSelect(editions[idx - 1]) }
+                        } else if v.translation.width > 30 && idx + 1 < editions.count {
+                            // swipe droite = plus ancienne
+                            editionInsertEdge = .leading
+                            editionRemoveEdge = .trailing
+                            withAnimation(.easeInOut(duration: 0.22)) { onEditionSelect(editions[idx + 1]) }
+                        }
+                    } else if v.translation.height > 60 {
                         onDismiss()
                     }
                 }
