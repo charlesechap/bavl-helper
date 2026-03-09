@@ -407,7 +407,7 @@ struct JournalView: View {
                 Button { showEditionPicker.toggle() } label: {
                     Text(editionLabel)
                         .font(.system(.caption2, design: .monospaced))
-                        .foregroundStyle(showEditionPicker ? activeColor : dimColor)
+                        .foregroundStyle(showEditionPicker ? activeColor : Color(white: 0.72))
                         .lineLimit(1)
                 }
 
