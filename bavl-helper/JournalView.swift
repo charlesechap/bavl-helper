@@ -243,20 +243,7 @@ struct JournalView: View {
                     .tabViewStyle(.page(indexDisplayMode: .never))
                     .ignoresSafeArea()
                 }
-                .onScrollGeometryChange(for: CGFloat.self,
-                    of: { $0.contentOffset.y },
-                    action: { old, new in
-                        let delta = new - lastScrollY
-                        lastScrollY = new
-                        if new <= 0 {
-                            barVisible = true
-                        } else if delta > 6 {
-                            barVisible = false   // scroll vers le bas → cache
-                        } else if delta < -6 {
-                            barVisible = true    // scroll vers le haut → montre
-                        }
-                    }
-                )
+
 
                 // TerminalBar
                 journalBar(safeTop: safeTop)
@@ -323,6 +310,22 @@ struct JournalView: View {
                 Color.clear.frame(height: 32)
             }
         }
+        .padding(.top, barVisible ? safeTop + 89 : 0)
+        .animation(.easeInOut(duration: 0.22), value: barVisible)
+        .onScrollGeometryChange(for: CGFloat.self,
+            of: { $0.contentOffset.y },
+            action: { _, new in
+                let delta = new - lastScrollY
+                lastScrollY = new
+                if new <= 0 {
+                    barVisible = true
+                } else if delta > 6 {
+                    barVisible = false
+                } else if delta < -6 {
+                    barVisible = true
+                }
+            }
+        )
     }
 
     private func articleRow(_ article: ArticleMeta) -> some View {
