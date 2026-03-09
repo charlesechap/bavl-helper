@@ -289,20 +289,9 @@ struct JournalView: View {
                             .tint(dimColor)
                             .frame(width: 72, height: 72)
                     } else if let thumbURL = article.thumbnailURL {
-                        AsyncImage(url: thumbURL) { phase in
-                            switch phase {
-                            case .success(let img):
-                                img.resizable()
-                                    .interpolation(.high)
-                                    .aspectRatio(contentMode: .fill)
-                                    .clipped()
-                                    .cornerRadius(4)
-                            default:
-                                Color(white: 0.18)
-                                    .cornerRadius(4)
-                            }
-                        }
-                        .frame(width: 72, height: 72)
+                        PressImage(url: thumbURL, width: 72, height: 72, contentMode: .fill)
+                            .cornerRadius(4)
+                            .clipped()
                     } else if let p = article.pageNumber {
                         Text("p.\(p)")
                             .font(.system(.caption2, design: .monospaced))
