@@ -450,23 +450,27 @@ struct JournalView: View {
 
                 VStack(spacing: 0) {
                     ForEach(editions) { edition in
+                        let isCurrent = edition.date == vm.currentDate
                         Button {
                             showEditionPicker = false
                             onEditionSelect(edition)
                         } label: {
-                            HStack(spacing: 12) {
-                                Text(edition.displayLabel)
+                            HStack(spacing: 0) {
+                                // Indicateur actif
+                                Text(isCurrent ? "●" : " ")
+                                    .font(.system(size: 8, design: .monospaced))
+                                    .foregroundStyle(activeColor)
+                                    .frame(width: 20)
+
+                                Text("\(newspaper.name)  —  \(edition.displayLabel)")
                                     .font(.system(.callout, design: .monospaced))
-                                    .foregroundStyle(edition.date == vm.currentDate ? activeColor : Color(white: 0.65))
+                                    .foregroundStyle(isCurrent ? activeColor : Color(white: 0.55))
+                                    .lineLimit(1)
+
                                 Spacer()
-                                if edition.date == vm.currentDate {
-                                    Image(systemName: "checkmark")
-                                        .font(.system(size: 11, weight: .semibold))
-                                        .foregroundStyle(activeColor)
-                                }
                             }
-                            .padding(.horizontal, 20)
-                            .padding(.vertical, 13)
+                            .padding(.horizontal, 12)
+                            .frame(height: 44)
                         }
                         .buttonStyle(.plain)
                         Divider().overlay(faintColor)
