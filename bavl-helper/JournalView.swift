@@ -232,15 +232,6 @@ struct JournalView: View {
                 }
             }
             .ignoresSafeArea(edges: .top)
-            .gesture(
-                DragGesture(minimumDistance: 40)
-                    .onEnded { v in
-                        // Swipe down depuis le haut → fermer journal
-                        if v.translation.height > 80 && abs(v.translation.width) < 60 {
-                            onDismiss()
-                        }
-                    }
-            )
         }
         // Sheet article (TabView multi-articles)
         .sheet(item: $selectedArticle) { _ in
@@ -429,6 +420,14 @@ struct JournalView: View {
             Divider().overlay(faintColor)
         }
         .padding(.top, safeTop)
+        .gesture(
+            DragGesture(minimumDistance: 40)
+                .onEnded { v in
+                    if v.translation.height > 60 && abs(v.translation.width) < 80 {
+                        onDismiss()
+                    }
+                }
+        )
     }
 
     // MARK: - Edition picker
