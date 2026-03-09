@@ -293,6 +293,7 @@ struct JournalView: View {
                             switch phase {
                             case .success(let img):
                                 img.resizable()
+                                    .interpolation(.high)
                                     .aspectRatio(contentMode: .fill)
                                     .clipped()
                                     .cornerRadius(4)
