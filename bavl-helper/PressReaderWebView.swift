@@ -22,7 +22,8 @@ private let editionDateFormatter: DateFormatter = {
 
 private let editionDisplayFormatter: DateFormatter = {
     let f = DateFormatter()
-    f.dateFormat = "EEE dd.MM.yyyy"   // "Ven. 06.03.2026"
+    f.dateStyle = .medium
+    f.timeStyle = .none             // "6 mars 2026"
     f.locale = Locale(identifier: "fr_CH")
     f.timeZone = TimeZone(identifier: "Europe/Zurich")
     return f
