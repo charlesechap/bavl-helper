@@ -193,6 +193,8 @@ struct JournalView: View {
     @State private var selectedArticleIndex: Int = 0
     @State private var loadingArticleId: Int64? = nil
     @State private var showEditionPicker = false
+    @State private var barVisible = true
+    @State private var lastScrollY: CGFloat = 0
     @State private var previewMeta: ArticleMeta? = nil
     @State private var previewArticle: ArticleContent? = nil
     @State private var loadingPreviewId: Int64? = nil
@@ -222,6 +224,20 @@ struct JournalView: View {
                     }
                 }
                 .padding(.top, safeTop + 44)
+                .onScrollGeometryChange(for: CGFloat.self,
+                    of: { $0.contentOffset.y },
+                    action: { old, new in
+                        let delta = new - lastScrollY
+                        lastScrollY = new
+                        if new <= 0 {
+                            barVisible = true
+                        } else if delta > 6 {
+                            barVisible = false   // scroll vers le bas → cache
+                        } else if delta < -6 {
+                            barVisible = true    // scroll vers le haut → montre
+                        }
+                    }
+                )
 
                 // TerminalBar
                 journalBar(safeTop: safeTop)
@@ -393,6 +409,7 @@ struct JournalView: View {
     private func journalBar(safeTop: CGFloat) -> some View {
         VStack(spacing: 0) {
             HStack(alignment: .center, spacing: 0) {
+                Spacer()
                 // Edition label (cliquable)
                 Button { showEditionPicker.toggle() } label: {
                     Text(editionLabel)
@@ -400,13 +417,15 @@ struct JournalView: View {
                         .foregroundStyle(showEditionPicker ? activeColor : Color(white: 0.82))
                         .lineLimit(1)
                 }
-
                 Spacer()
             }
             .frame(height: 44)
             .background(bgColor)
             Divider().overlay(faintColor)
         }
+        .offset(y: barVisible ? 0 : -(safeTop + 44))
+        .opacity(barVisible ? 1 : 0)
+        .animation(.easeInOut(duration: 0.22), value: barVisible)
         .padding(.top, safeTop)
         .gesture(
             DragGesture(minimumDistance: 40)
