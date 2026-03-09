@@ -7,11 +7,13 @@ struct ArticleParagraph: Identifiable {
     let text: String
     let style: ParagraphStyle
     let imageURL: URL?    // non-nil quand style == .image
+    let nativeSize: CGSize // taille native en pixels (pour éviter upscale)
 
-    init(text: String, style: ParagraphStyle, imageURL: URL? = nil) {
+    init(text: String, style: ParagraphStyle, imageURL: URL? = nil, nativeSize: CGSize = .zero) {
         self.text = text
         self.style = style
         self.imageURL = imageURL
+        self.nativeSize = nativeSize
     }
 
     enum ParagraphStyle {
@@ -97,7 +99,8 @@ struct ArticleContent: Identifiable {
                 guard let imgURL = URL(string: "https://i.prcdn.co/img?regionKey=\(encoded)&width=\(targetW)")
                 else { continue }
                 let caption = (img["caption"] as? String)?.fixedEncoding ?? ""
-                imageParagraphs.append(ArticleParagraph(text: caption, style: .image, imageURL: imgURL))
+                let sz = CGSize(width: CGFloat(nativeW), height: CGFloat(nativeH))
+                imageParagraphs.append(ArticleParagraph(text: caption, style: .image, imageURL: imgURL, nativeSize: sz))
             }
             // Insérer la première image après le 1er paragraphe body (chapeau)
             if !imageParagraphs.isEmpty && !paragraphs.isEmpty {
@@ -231,14 +234,31 @@ struct ArticleReaderView: View {
         case .image:
             VStack(alignment: .leading, spacing: 6) {
                 if let url = para.imageURL {
-                    AsyncImage(url: url) { img in
-                        img.resizable()
-                            .aspectRatio(contentMode: .fit)
-                            .frame(maxWidth: .infinity)
-                    } placeholder: {
-                        Color(white: 0.18)
-                            .frame(maxWidth: .infinity, minHeight: 120)
+                    let pts = para.nativeSize
+                    // Afficher à taille native/@3x, plafonné à la largeur dispo
+                    GeometryReader { geo in
+                        let maxW = geo.size.width
+                        let natW = pts.width / 3.0  // pixels → points @3x
+                        let dispW = pts.width > 0 ? min(natW, maxW) : maxW
+                        let dispH = pts.width > 0 ? dispW * pts.height / pts.width : 160
+                        AsyncImage(url: url) { img in
+                            img.resizable()
+                                .aspectRatio(contentMode: .fit)
+                                .frame(width: dispW, height: dispH)
+                        } placeholder: {
+                            Color(white: 0.18)
+                                .frame(width: dispW, height: dispH)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .center)
                     }
+                    .frame(height: {
+                        let natW = para.nativeSize.width / 3.0
+                        let natH = para.nativeSize.height / 3.0
+                        guard natW > 0 else { return 160 }
+                        let screenW = UIScreen.main.bounds.width - 32
+                        let dispW = min(natW, screenW)
+                        return dispW * natH / natW
+                    }())
                     .padding(.vertical, 4)
                 }
                 if !para.text.isEmpty {
