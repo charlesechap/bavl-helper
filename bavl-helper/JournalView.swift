@@ -415,13 +415,11 @@ struct JournalView: View {
                     .font(.system(.caption2, design: .monospaced))
                     .foregroundStyle(Color(white: 0.40))
                     .lineLimit(1)
-                Button { withAnimation(.easeOut(duration: 0.18)) { showEditionPicker.toggle() } } label: {
-                    Text(dateLabel)
-                        .font(.system(.callout, design: .monospaced))
-                        .foregroundStyle(showEditionPicker ? activeColor : Color(white: 0.82))
-                        .lineLimit(1)
-                }
-                .buttonStyle(.plain)
+                Text(dateLabel)
+                    .font(.system(.callout, design: .monospaced))
+                    .foregroundStyle(showEditionPicker ? activeColor : Color(white: 0.82))
+                    .lineLimit(1)
+                    .onTapGesture { withAnimation(.easeOut(duration: 0.18)) { showEditionPicker.toggle() } }
             }
             .frame(maxWidth: .infinity)
             .frame(height: 64)
@@ -429,6 +427,9 @@ struct JournalView: View {
             Divider().overlay(faintColor)
         }
         .offset(y: barVisible ? 0 : -(safeTop + 44))
+        .opacity(barVisible ? 1 : 0)
+        .animation(.easeInOut(duration: 0.22), value: barVisible)
+        .offset(y: barVisible ? 0 : -(safeTop + 64))
         .opacity(barVisible ? 1 : 0)
         .animation(.easeInOut(duration: 0.22), value: barVisible)
         .padding(.top, safeTop)
