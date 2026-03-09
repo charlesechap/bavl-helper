@@ -193,10 +193,6 @@ struct JournalView: View {
     @State private var selectedArticleIndex: Int = 0
     @State private var loadingArticleId: Int64? = nil
     @State private var barVisible = true
-    @State private var dateOffset: CGFloat = 0
-    @State private var dateOpacity: Double = 1
-    @State private var nextDateLabel: String = ""
-    @State private var nextDateOffset: CGFloat = 0
     @State private var lastScrollY: CGFloat = 0
     @State private var previewMeta: ArticleMeta? = nil
     @State private var previewArticle: ArticleContent? = nil
@@ -213,21 +209,40 @@ struct JournalView: View {
             ZStack(alignment: .top) {
                 bgColor.ignoresSafeArea()
 
-                // Contenu principal
-                Group {
+                // Contenu principal : TabView paginé par édition
+                if editions.isEmpty {
                     switch vm.state {
-                    case .idle:
-                        centeredMessage("Connexion en cours…")
-                    case .loading:
-                        centeredMessage("Chargement du journal…")
-                    case .error(let msg):
-                        centeredMessage("Erreur : \(msg)")
-                    case .ready:
-                        articleList(safeTop: safeTop)
+                    case .idle:   centeredMessage("Connexion en cours…")
+                    case .loading: centeredMessage("Chargement du journal…")
+                    case .error(let msg): centeredMessage("Erreur : \(msg)")
+                    case .ready:  articleList(safeTop: safeTop)
                     }
+                } else {
+                    TabView(selection: Binding(
+                        get: { vm.currentDate },
+                        set: { date in
+                            if let ed = editions.first(where: { $0.date == date }), date != vm.currentDate {
+                                onEditionSelect(ed)
+                            }
+                        }
+                    )) {
+                        ForEach(editions) { edition in
+                            Group {
+                                if edition.date == vm.currentDate {
+                                    switch vm.state {
+                                    case .ready: articleList(safeTop: safeTop)
+                                    default:     centeredMessage("Chargement…")
+                                    }
+                                } else {
+                                    centeredMessage(editionDateLabel(edition.date))
+                                }
+                            }
+                            .tag(edition.date)
+                        }
+                    }
+                    .tabViewStyle(.page(indexDisplayMode: .never))
+                    .ignoresSafeArea()
                 }
-                .padding(.top, barVisible ? safeTop + 89 : 0)  // suit la barre
-                .animation(.easeInOut(duration: 0.22), value: barVisible)
                 .onScrollGeometryChange(for: CGFloat.self,
                     of: { $0.contentOffset.y },
                     action: { old, new in
@@ -409,7 +424,6 @@ struct JournalView: View {
 
     private func journalBar(safeTop: CGFloat) -> some View {
         VStack(spacing: 0) {
-            // Nom du journal
             Text(newspaper.name)
                 .font(.system(.callout, design: .monospaced))
                 .foregroundStyle(Color(white: 0.82))
@@ -420,73 +434,13 @@ struct JournalView: View {
 
             Divider().overlay(faintColor)
 
-            // Date de l'édition — swipe suit le doigt, gauche = plus récente, droite = plus ancienne
-            ZStack {
-                // Date entrante (glisse depuis le côté opposé)
-                if !nextDateLabel.isEmpty {
-                    Text(nextDateLabel)
-                        .font(.system(.callout, design: .monospaced))
-                        .foregroundStyle(Color(white: 0.82))
-                        .lineLimit(1)
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 44)
-                        .offset(x: nextDateOffset)
-                }
-                // Date courante
-                Text(dateLabel)
-                    .font(.system(.callout, design: .monospaced))
-                    .foregroundStyle(Color(white: 0.82))
-                    .lineLimit(1)
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 44)
-                    .offset(x: dateOffset)
-                    .opacity(dateOpacity)
-            }
-            .frame(height: 44)
-            .background(bgColor)
-            .contentShape(Rectangle())
-            .clipped()
-            .simultaneousGesture(
-                    DragGesture(minimumDistance: 10)
-                        .onChanged { v in
-                            guard abs(v.translation.width) > abs(v.translation.height) else { return }
-                            dateOffset = v.translation.width
-                        }
-                        .onEnded { v in
-                            guard abs(v.translation.width) > abs(v.translation.height) else {
-                                withAnimation(.easeOut(duration: 0.2)) { dateOffset = 0 }
-                                return
-                            }
-                            guard let idx = editions.firstIndex(where: { $0.date == vm.currentDate }) else {
-                                withAnimation(.easeOut(duration: 0.2)) { dateOffset = 0 }
-                                return
-                            }
-                            // droite = plus ancienne (idx+1), gauche = plus récente (idx-1)
-                            let goNext = v.translation.width < 0 && idx > 0
-                            let goPrev = v.translation.width > 0 && idx + 1 < editions.count
-                            if goNext || goPrev {
-                                let exitDir: CGFloat = v.translation.width < 0 ? -400 : 400
-                                let target = goNext ? editions[idx - 1] : editions[idx + 1]
-                                // Préparer la date entrante hors champ côté opposé
-                                nextDateLabel = editionDateLabel(target.date)
-                                nextDateOffset = -exitDir
-                                withAnimation(.easeInOut(duration: 0.22)) {
-                                    dateOffset = exitDir
-                                    dateOpacity = 0
-                                    nextDateOffset = 0
-                                }
-                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.22) {
-                                    onEditionSelect(target)
-                                    dateOffset = 0
-                                    dateOpacity = 1
-                                    nextDateLabel = ""
-                                    nextDateOffset = 0
-                                }
-                            } else {
-                                withAnimation(.easeOut(duration: 0.2)) { dateOffset = 0 }
-                            }
-                        }
-                )
+            Text(dateLabel)
+                .font(.system(.callout, design: .monospaced))
+                .foregroundStyle(Color(white: 0.55))
+                .lineLimit(1)
+                .frame(maxWidth: .infinity)
+                .frame(height: 44)
+                .background(bgColor)
 
             Divider().overlay(faintColor)
         }
