@@ -239,6 +239,7 @@ struct JournalView: View {
                 allArticles: flatArticles,
                 initialIndex: selectedArticleIndex,
                 newspaperName: newspaper.name,
+                editionDate: vm.currentDate,
                 bearer: bearerToken,
                 onJournal: { selectedArticle = nil }
             )
