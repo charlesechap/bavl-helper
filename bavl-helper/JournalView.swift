@@ -443,7 +443,6 @@ struct JournalView: View {
 
     private func editionPickerOverlay(safeTop: CGFloat) -> some View {
         ZStack(alignment: .top) {
-            // Fond léger — tap pour fermer
             Color.black.opacity(0.35)
                 .ignoresSafeArea()
                 .onTapGesture { withAnimation(.easeOut(duration: 0.18)) { showEditionPicker = false } }
@@ -455,36 +454,29 @@ struct JournalView: View {
                     VStack(spacing: 0) {
                         ForEach(editions) { edition in
                             let isCurrent = edition.date == vm.currentDate
-                            Button {
-                                withAnimation(.easeOut(duration: 0.18)) { showEditionPicker = false }
-                                onEditionSelect(edition)
-                            } label: {
-                                HStack(spacing: 0) {
-                                    Text(isCurrent ? "│" : " ")
-                                        .font(.system(size: 14, design: .monospaced))
-                                        .foregroundStyle(activeColor)
-                                        .frame(width: 16)
-                                        .padding(.leading, 16)
-
-                                    Text("\(newspaper.name)  —  \(edition.displayLabel)")
-                                        .font(.system(.callout, design: .monospaced))
-                                        .foregroundStyle(isCurrent ? activeColor : Color(white: 0.50))
-                                        .lineLimit(1)
-                                        .padding(.leading, 8)
-
-                                    Spacer()
+                            if !isCurrent {
+                                Button {
+                                    withAnimation(.easeOut(duration: 0.18)) { showEditionPicker = false }
+                                    onEditionSelect(edition)
+                                } label: {
+                                    HStack(spacing: 0) {
+                                        Spacer()
+                                        Text(edition.displayLabel)
+                                            .font(.system(.callout, design: .monospaced))
+                                            .foregroundStyle(Color(white: 0.50))
+                                            .lineLimit(1)
+                                        Spacer()
+                                    }
+                                    .frame(height: 44)
                                 }
-                                .frame(height: 44)
-                                .background(isCurrent ? Color(white: 0.16) : Color.clear)
+                                .buttonStyle(.plain)
+                                Divider().overlay(faintColor)
                             }
-                            .buttonStyle(.plain)
-                            Divider().overlay(faintColor)
                         }
                     }
                 }
-                .frame(maxHeight: UIScreen.main.bounds.height * 0.55)
+                .frame(maxHeight: UIScreen.main.bounds.height * 0.50)
                 .background(bgColor)
-                .clipShape(Rectangle())
             }
         }
         .transition(.opacity.combined(with: .move(edge: .top)))
