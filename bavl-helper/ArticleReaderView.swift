@@ -119,12 +119,24 @@ struct ArticleContent: Identifiable {
 // MARK: - Vue principale
 
 struct ArticleReaderView: View {
-    let article: ArticleContent
+    let allArticles: [ArticleMeta]
+    let initialIndex: Int
     let newspaperName: String
-    let onDismiss: () -> Void
+    let bearer: String
     let onJournal: () -> Void
 
+    @State private var currentIndex: Int
     @State private var showShare = false
+    @State private var shareText: String = ""
+
+    init(allArticles: [ArticleMeta], initialIndex: Int, newspaperName: String, bearer: String, onJournal: @escaping () -> Void) {
+        self.allArticles = allArticles
+        self.initialIndex = initialIndex
+        self.newspaperName = newspaperName
+        self.bearer = bearer
+        self.onJournal = onJournal
+        self._currentIndex = State(initialValue: initialIndex)
+    }
 
     var body: some View {
         GeometryReader { geo in
@@ -132,31 +144,32 @@ struct ArticleReaderView: View {
             ZStack(alignment: .top) {
                 Color(red: 0.13, green: 0.13, blue: 0.13).ignoresSafeArea()
 
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 0) {
-                        // Header article
-                        articleHeader
-                            .padding(.top, safeTop + 44 + 20)
-                            .padding(.horizontal, 20)
-
-                        Divider()
-                            .overlay(Color(white: 0.25))
-                            .padding(.horizontal, 20)
-                            .padding(.vertical, 16)
-
-                        // Corps
-                        ForEach(article.paragraphs) { para in
-                            paragraphView(para)
-                                .padding(.horizontal, 20)
-                                .padding(.bottom, paragraphSpacing(para))
-                        }
-
-                        // Marge basse
-                        Color.clear.frame(height: 60)
+                TabView(selection: $currentIndex) {
+                    ForEach(Array(allArticles.enumerated()), id: \.offset) { idx, meta in
+                        ArticlePageView(
+                            meta: meta,
+                            bearer: bearer,
+                            safeTop: safeTop,
+                            onShareReady: { text in
+                                shareText = text
+                                showShare = true
+                            }
+                        )
+                        .tag(idx)
                     }
                 }
+                .tabViewStyle(.page(indexDisplayMode: .never))
+                .ignoresSafeArea()
+                .gesture(
+                    DragGesture(minimumDistance: 40)
+                        .onEnded { v in
+                            // Swipe down → retour journal
+                            if v.translation.height > 80 && abs(v.translation.width) < 60 {
+                                onJournal()
+                            }
+                        }
+                )
 
-                // TerminalBar article reader
                 readerBar(safeTop: safeTop)
             }
             .ignoresSafeArea(edges: .top)
@@ -167,64 +180,152 @@ struct ArticleReaderView: View {
         .preferredColorScheme(.dark)
     }
 
-    private var shareText: String {
-        var parts: [String] = []
-        if let s = article.sectionName { parts.append(s.uppercased()) }
-        parts.append(article.title)
-        if let sub = article.subtitle, !sub.isEmpty { parts.append(sub) }
-        if let auth = article.author, !auth.isEmpty { parts.append("par " + auth) }
-        parts.append("")
-        for para in article.paragraphs {
-            switch para.style {
-            case .body: parts.append(para.text)
-            case .heading: parts.append("\n" + para.text)
-            default: break
+    // MARK: - TerminalBar
+
+    private func readerBar(safeTop: CGFloat) -> some View {
+        VStack(spacing: 0) {
+            HStack(alignment: .center, spacing: 0) {
+                Button(action: onJournal) {
+                    Text("←")
+                        .font(.system(.body, design: .monospaced))
+                        .foregroundStyle(Color(white: 0.82))
+                }
+                .frame(width: 44, height: 44)
+                .padding(.leading, 8)
+
+                Spacer()
+
+                Button(action: onJournal) {
+                    Text(barLabel)
+                        .font(.system(.caption2, design: .monospaced))
+                        .foregroundStyle(Color(white: 0.35))
+                        .lineLimit(1)
+                }
+                .buttonStyle(.plain)
+
+                Spacer()
+
+                Button { showShare = true } label: {
+                    Text("↑")
+                        .font(.system(.body, design: .monospaced))
+                        .foregroundStyle(Color(white: 0.82))
+                }
+                .frame(width: 44, height: 44)
+                .padding(.trailing, 8)
+            }
+            .frame(height: 44)
+            .background(Color(red: 0.13, green: 0.13, blue: 0.13))
+            Divider().overlay(Color(white: 0.20))
+        }
+        .padding(.top, safeTop)
+    }
+
+    private var barLabel: String {
+        guard currentIndex < allArticles.count else { return newspaperName }
+        let dateStr = "" // date sera dans ArticlePageView
+        _ = dateStr
+        return newspaperName
+    }
+}
+
+// MARK: - ArticlePageView (une page du TabView)
+
+private struct ArticlePageView: View {
+    let meta: ArticleMeta
+    let bearer: String
+    let safeTop: CGFloat
+    let onShareReady: (String) -> Void
+
+    @State private var article: ArticleContent? = nil
+    @State private var loading = true
+
+    var body: some View {
+        ZStack(alignment: .top) {
+            Color(red: 0.13, green: 0.13, blue: 0.13).ignoresSafeArea()
+
+            if let art = article {
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 0) {
+                        articleHeader(art)
+                            .padding(.top, safeTop + 44 + 20)
+                            .padding(.horizontal, 20)
+
+                        Divider()
+                            .overlay(Color(white: 0.25))
+                            .padding(.horizontal, 20)
+                            .padding(.vertical, 16)
+
+                        ForEach(art.paragraphs) { para in
+                            paragraphView(para)
+                                .padding(.horizontal, 20)
+                                .padding(.bottom, paragraphSpacing(para))
+                        }
+
+                        Color.clear.frame(height: 60)
+                    }
+                }
+            } else if loading {
+                VStack {
+                    Spacer()
+                    ProgressView()
+                        .tint(Color(white: 0.45))
+                    Spacer()
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.top, safeTop + 44)
             }
         }
-        parts.append("\n— " + newspaperName + ", " + (displayDate(article.date) ?? article.date))
-        return parts.joined(separator: "\n")
+        .onAppear { fetchIfNeeded() }
+    }
+
+    private func fetchIfNeeded() {
+        guard article == nil else { return }
+        guard let url = URL(string: "https://ingress.pressreader.com/services/v1/articles/\(meta.id)/?articleFields=8191&isHyphenated=true&fullBody=true") else { return }
+        var req = URLRequest(url: url, timeoutInterval: 15)
+        req.setValue("Bearer \(bearer)", forHTTPHeaderField: "Authorization")
+        req.setValue("application/json", forHTTPHeaderField: "Accept")
+        URLSession.shared.dataTask(with: req) { data, _, _ in
+            guard let data,
+                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let art = ArticleContent.parse(from: json)
+            else { DispatchQueue.main.async { loading = false }; return }
+            DispatchQueue.main.async {
+                article = art
+                loading = false
+            }
+        }.resume()
     }
 
     // MARK: - Header
 
-    private var articleHeader: some View {
+    private func articleHeader(_ art: ArticleContent) -> some View {
         VStack(alignment: .leading, spacing: 10) {
-            // Rubrique + date
-            if let section = article.sectionName, !section.isEmpty {
+            if let section = art.sectionName, !section.isEmpty {
                 Text(section.uppercased())
                     .font(.system(.caption2, design: .monospaced))
                     .foregroundStyle(Color(white: 0.45))
                     .tracking(1.5)
             }
-
-            // Titre
-            Text(article.title)
+            Text(art.title)
                 .font(.system(size: 24, weight: .bold))
                 .foregroundStyle(Color(white: 0.92))
                 .fixedSize(horizontal: false, vertical: true)
-
-            // Sous-titre
-            if let sub = article.subtitle, !sub.isEmpty {
+            if let sub = art.subtitle, !sub.isEmpty {
                 Text(sub)
-                    .font(.system(size: 15, weight: .regular))
+                    .font(.system(size: 15))
                     .foregroundStyle(Color(white: 0.65))
                     .fixedSize(horizontal: false, vertical: true)
                     .padding(.top, 2)
             }
-
-            // Auteur + date
             HStack(spacing: 8) {
-                if let auth = article.author, !auth.isEmpty {
+                if let auth = art.author, !auth.isEmpty {
                     Text(auth)
-                        .font(.system(.caption, design: .default))
+                        .font(.system(.caption))
                         .foregroundStyle(Color(white: 0.50))
                 }
-                if !article.date.isEmpty, let d = displayDate(article.date) {
-                    Text("·")
-                        .foregroundStyle(Color(white: 0.30))
-                    Text(d)
-                        .font(.system(.caption, design: .default))
-                        .foregroundStyle(Color(white: 0.40))
+                if !art.date.isEmpty, let d = displayDate(art.date) {
+                    Text("·").foregroundStyle(Color(white: 0.30))
+                    Text(d).font(.system(.caption)).foregroundStyle(Color(white: 0.40))
                 }
             }
             .padding(.top, 4)
@@ -241,8 +342,7 @@ struct ArticleReaderView: View {
                 .font(.system(size: 17, weight: .semibold))
                 .foregroundStyle(Color(white: 0.88))
                 .fixedSize(horizontal: false, vertical: true)
-                .padding(.top, 8)
-                .padding(.bottom, 4)
+                .padding(.top, 8).padding(.bottom, 4)
         case .subheading:
             Text(para.text)
                 .font(.system(size: 15, weight: .medium))
@@ -269,8 +369,7 @@ struct ArticleReaderView: View {
                                 .frame(width: w, height: h)
                                 .clipped()
                         } placeholder: {
-                            Color(white: 0.18)
-                                .frame(width: w, height: h)
+                            Color(white: 0.18).frame(width: w, height: h)
                         }
                     }
                     .frame(height: {
@@ -308,69 +407,12 @@ struct ArticleReaderView: View {
         }
     }
 
-    // MARK: - TerminalBar lecture
-
-    private func readerBar(safeTop: CGFloat) -> some View {
-        VStack(spacing: 0) {
-            HStack(alignment: .center, spacing: 0) {
-                // ← retour journal
-                Button(action: onJournal) {
-                    Text("←")
-                        .font(.system(.body, design: .monospaced))
-                        .foregroundStyle(Color(white: 0.82))
-                }
-                .frame(width: 44, height: 44)
-                .padding(.leading, 8)
-
-                Spacer()
-
-                // Titre cliquable → retour journal
-                Button(action: onJournal) {
-                    Text(articleDateLabel)
-                        .font(.system(.caption2, design: .monospaced))
-                        .foregroundStyle(Color(white: 0.35))
-                        .lineLimit(1)
-                }
-                .buttonStyle(.plain)
-
-                Spacer()
-
-                // ↑ partager
-                Button { showShare = true } label: {
-                    Text("↑")
-                        .font(.system(.body, design: .monospaced))
-                        .foregroundStyle(Color(white: 0.82))
-                }
-                .frame(width: 44, height: 44)
-                .padding(.trailing, 8)
-            }
-            .frame(height: 44)
-            .background(Color(red: 0.13, green: 0.13, blue: 0.13))
-            Divider().overlay(Color(white: 0.20))
-        }
-        .padding(.top, safeTop)
-    }
-
-    // MARK: - Helpers
-
-    private var articleDateLabel: String {
-        guard article.date.count == 8 else { return newspaperName }
-        let fmt = DateFormatter()
-        fmt.dateFormat = "yyyyMMdd"
-        guard let d = fmt.date(from: article.date) else { return newspaperName }
-        let disp = DateFormatter()
-        disp.dateStyle = .medium; disp.timeStyle = .none
-        disp.locale = Locale(identifier: "fr_CH")
-        return "\(newspaperName)  —  \(disp.string(from: d))"
-    }
-
-    private func displayDate(_ dateStr: String) -> String? {
-        guard dateStr.count == 8 else { return nil }
-        let fmt = DateFormatter()
-        fmt.dateFormat = "yyyyMMdd"
-        guard let d = fmt.date(from: dateStr) else { return nil }
-        fmt.dateStyle = .medium; fmt.timeStyle = .none; fmt.locale = Locale(identifier: "fr_CH")
-        return fmt.string(from: d)
+    private func displayDate(_ s: String) -> String? {
+        guard s.count == 8 else { return nil }
+        let f = DateFormatter(); f.dateFormat = "yyyyMMdd"
+        guard let d = f.date(from: s) else { return nil }
+        f.dateStyle = .medium; f.timeStyle = .none; f.locale = Locale(identifier: "fr_CH")
+        return f.string(from: d)
     }
 }
 
