@@ -57,7 +57,7 @@ struct ArticleContent: Identifiable {
                     print("ARTICLE photo keys=\(Array(p.keys).sorted()) rawKey=\(rawKey.prefix(20))")
                     if !rawKey.isEmpty,
                        let encoded = rawKey.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
-                       let imgURL = URL(string: "https://i.prcdn.co/img?regionKey=\(encoded)&width=1200") {
+                       let imgURL = URL(string: "https://i.prcdn.co/img?regionKey=\(encoded)&width=1170") {
                         let caption = (p["text"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? ""
                         paragraphs.append(ArticleParagraph(text: caption, style: .image, imageURL: imgURL))
                     }
@@ -86,7 +86,7 @@ struct ArticleContent: Identifiable {
                 let rawKey = (img["regionKey"] as? String) ?? (img["id"] as? String) ?? ""
                 guard !rawKey.isEmpty,
                       let encoded = rawKey.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
-                      let imgURL = URL(string: "https://i.prcdn.co/img?regionKey=\(encoded)&width=1200")
+                      let imgURL = URL(string: "https://i.prcdn.co/img?regionKey=\(encoded)&width=1170")
                 else { continue }
                 let caption = (img["caption"] as? String)?.fixedEncoding ?? ""
                 imageParagraphs.append(ArticleParagraph(text: caption, style: .image, imageURL: imgURL))
@@ -227,9 +227,9 @@ struct ArticleReaderView: View {
                         switch phase {
                         case .success(let img):
                             img.resizable()
-                                .aspectRatio(contentMode: .fill)
+                                .interpolation(.high)
+                                .aspectRatio(contentMode: .fit)
                                 .frame(maxWidth: .infinity)
-                                .clipped()
                         case .failure:
                             EmptyView()
                         default:
