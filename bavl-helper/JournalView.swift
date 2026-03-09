@@ -404,41 +404,22 @@ struct JournalView: View {
     // MARK: - TerminalBar
 
     private func journalBar(safeTop: CGFloat) -> some View {
-        ZStack(alignment: .top) {
-            // Barre fixe : nom + séparateur + date
-            VStack(spacing: 0) {
-                Text(newspaper.name)
-                    .font(.system(.callout, design: .monospaced))
-                    .foregroundStyle(Color(white: 0.82))
-                    .lineLimit(1)
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 44)
-                    .background(bgColor)
+        VStack(spacing: 0) {
+            // Nom du journal — fixe, non cliquable
+            Text(newspaper.name)
+                .font(.system(.callout, design: .monospaced))
+                .foregroundStyle(Color(white: 0.82))
+                .lineLimit(1)
+                .frame(maxWidth: .infinity)
+                .frame(height: 44)
+                .background(bgColor)
 
-                Divider().overlay(faintColor)
+            Divider().overlay(faintColor)
 
-                Text(dateLabel)
-                    .font(.system(.callout, design: .monospaced))
-                    .foregroundStyle(showEditionPicker ? activeColor : Color(white: 0.55))
-                    .lineLimit(1)
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 44)
-                    .background(bgColor)
-                    .contentShape(Rectangle())
-                    .onTapGesture {
-                        withAnimation(.easeInOut(duration: 0.22)) { showEditionPicker.toggle() }
-                    }
-
-                Divider().overlay(faintColor)
-            }
-
-            // Carousel superposé, ancré sous la ligne date (89pt depuis le haut du ZStack)
-            if showEditionPicker {
-                editionCarousel
-                    .offset(y: 89)
-                    .transition(.opacity.combined(with: .move(edge: .top)))
-                    .zIndex(10)
-            }
+            // Sélecteur d'éditions : ScrollView qui contient TOUTES les éditions.
+            // Fermé = hauteur 44pt (édition active centrée, clipsée).
+            // Ouvert = hauteur 220pt, scroll libre.
+            editionPicker
         }
         .offset(y: barVisible ? 0 : -(safeTop + barHeight))
         .opacity(barVisible ? 1 : 0)
@@ -454,41 +435,51 @@ struct JournalView: View {
         )
     }
 
-    // Hauteur de la barre fermée : 44pt
-    private var barHeight: CGFloat { 89 }  // 44 nom + 1 sep + 44 date
+    // Hauteur barre : 44 nom + 1 sep + 44 picker fermé
+    private var barHeight: CGFloat { 89 }
 
     @ViewBuilder
-    private var editionCarousel: some View {
+    private var editionPicker: some View {
         ScrollViewReader { proxy in
             ScrollView(.vertical, showsIndicators: false) {
                 VStack(spacing: 0) {
                     ForEach(editions) { edition in
-                        if edition.date != vm.currentDate {
-                            Button {
+                        let isCurrent = edition.date == vm.currentDate
+                        Button {
+                            if isCurrent {
+                                withAnimation(.easeInOut(duration: 0.22)) { showEditionPicker.toggle() }
+                            } else {
                                 withAnimation(.easeInOut(duration: 0.22)) { showEditionPicker = false }
                                 onEditionSelect(edition)
-                            } label: {
-                                Text(editionDateLabel(edition.date))
-                                    .font(.system(.callout, design: .monospaced))
-                                    .foregroundStyle(Color(white: 0.55))
-                                    .lineLimit(1)
-                                    .frame(maxWidth: .infinity)
-                                    .frame(height: 44)
                             }
-                            .buttonStyle(.plain)
-                            .id(edition.date)
-                            Divider().overlay(faintColor)
+                        } label: {
+                            Text(editionDateLabel(edition.date))
+                                .font(.system(.callout, design: .monospaced))
+                                .foregroundStyle(isCurrent
+                                    ? (showEditionPicker ? activeColor : Color(white: 0.82))
+                                    : Color(white: 0.45))
+                                .lineLimit(1)
+                                .frame(maxWidth: .infinity)
+                                .frame(height: 44)
                         }
+                        .buttonStyle(.plain)
+                        .id(edition.date)
+                        Divider().overlay(faintColor)
                     }
                 }
             }
-            .frame(maxHeight: 220)
+            .frame(height: showEditionPicker ? 220 : 44)
             .background(bgColor)
-            .onChange(of: vm.currentDate) { _, date in
-                withAnimation(.easeInOut(duration: 0.3)) { proxy.scrollTo(date, anchor: .center) }
-            }
+            .clipped()
+            .animation(.easeInOut(duration: 0.22), value: showEditionPicker)
             .onAppear {
                 proxy.scrollTo(vm.currentDate, anchor: .center)
+            }
+            .onChange(of: vm.currentDate) { _, date in
+                proxy.scrollTo(date, anchor: .center)
+            }
+            .onChange(of: showEditionPicker) { _, open in
+                if open { proxy.scrollTo(vm.currentDate, anchor: .center) }
             }
         }
         Divider().overlay(faintColor)
