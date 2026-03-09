@@ -438,8 +438,8 @@ struct JournalView: View {
     @ViewBuilder
     private var editionCarousel: some View {
         ScrollViewReader { proxy in
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 0) {
+            ScrollView(.vertical, showsIndicators: false) {
+                VStack(spacing: 0) {
                     ForEach(editions) { edition in
                         let isCurrent = edition.date == vm.currentDate
                         Button {
@@ -449,15 +449,17 @@ struct JournalView: View {
                                 .font(.system(.callout, design: .monospaced))
                                 .foregroundStyle(isCurrent ? activeColor : Color(white: 0.38))
                                 .lineLimit(1)
-                                .padding(.horizontal, 16)
+                                .frame(maxWidth: .infinity)
                                 .frame(height: 44)
                                 .background(isCurrent ? Color(white: 0.14) : Color.clear)
                         }
                         .buttonStyle(.plain)
                         .id(edition.date)
+                        Divider().overlay(faintColor)
                     }
                 }
             }
+            .frame(maxHeight: 220)
             .background(bgColor)
             .onChange(of: vm.currentDate) { _, date in
                 withAnimation(.easeInOut(duration: 0.3)) { proxy.scrollTo(date, anchor: .center) }
