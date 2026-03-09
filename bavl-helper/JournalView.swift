@@ -284,7 +284,9 @@ struct JournalView: View {
                 Color.clear.frame(height: 32)
             }
         }
-        .padding(.top, 89)
+        .safeAreaInset(edge: .top, spacing: 0) {
+            Color.clear.frame(height: barVisible ? 89 : 0)
+        }
         .onScrollGeometryChange(for: CGFloat.self,
             of: { $0.contentOffset.y },
             action: { _, new in
@@ -293,9 +295,9 @@ struct JournalView: View {
                 if new <= 0 {
                     barVisible = true
                 } else if delta > 6 {
-                    barVisible = false
+                    withAnimation(.easeInOut(duration: 0.22)) { barVisible = false }
                 } else if delta < -6 {
-                    barVisible = true
+                    withAnimation(.easeInOut(duration: 0.22)) { barVisible = true }
                 }
             }
         )
