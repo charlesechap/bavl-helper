@@ -483,6 +483,18 @@ struct JournalView: View {
         .transition(.opacity.combined(with: .move(edge: .top)))
     }
 
+        private func editionDateLabel(_ dateStr: String) -> String {
+        guard dateStr.count == 8 else { return dateStr }
+        let fmt = DateFormatter()
+        fmt.dateFormat = "yyyyMMdd"
+        fmt.locale = Locale(identifier: "fr_CH")
+        guard let d = fmt.date(from: dateStr) else { return dateStr }
+        let disp = DateFormatter()
+        disp.dateFormat = "EEEE d MMMM yyyy"
+        disp.locale = Locale(identifier: "fr_CH")
+        return disp.string(from: d)
+    }
+
     // MARK: - Helpers
 
     private var dateLabel: String {
