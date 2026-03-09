@@ -117,25 +117,21 @@ struct ArticleContent: Identifiable {
 }
 
 // MARK: - Cache articles partagé
-final class ArticleCache: ObservableObject {
-    private var cache: [Int64: ArticleContent] = [:]
-    private var inFlight: Set<Int64> = []
+final class ArticleCache {
+    nonisolated(unsafe) private var cache: [Int64: ArticleContent] = [:]
+    nonisolated(unsafe) private var inFlight: Set<Int64> = []
 
-    @MainActor func get(_ id: Int64) -> ArticleContent? { cache[id] }
+    func get(_ id: Int64) -> ArticleContent? { cache[id] }
 
-    @MainActor func prefetch(ids: [Int64], bearer: String) {
+    func prefetch(ids: [Int64], bearer: String) {
         for id in ids where cache[id] == nil && !inFlight.contains(id) {
             inFlight.insert(id)
-            _fetch(id: id, bearer: bearer)
+            fetch(id: id, bearer: bearer)
         }
     }
 
-    @MainActor func fetch(id: Int64, bearer: String, completion: ((ArticleContent?) -> Void)? = nil) {
+    func fetch(id: Int64, bearer: String, completion: ((ArticleContent?) -> Void)? = nil) {
         if let cached = cache[id] { completion?(cached); return }
-        _fetch(id: id, bearer: bearer, completion: completion)
-    }
-
-    private func _fetch(id: Int64, bearer: String, completion: ((ArticleContent?) -> Void)? = nil) {
         guard let url = URL(string: "https://ingress.pressreader.com/services/v1/articles/\(id)/?articleFields=8191&isHyphenated=true&fullBody=true") else {
             DispatchQueue.main.async { completion?(nil) }; return
         }
@@ -171,7 +167,7 @@ struct ArticleReaderView: View {
     @State private var currentIndex: Int
     @State private var showShare = false
     @State private var shareText: String = ""
-    @StateObject private var cache = ArticleCache()
+    @State private var cache = ArticleCache()
 
     init(allArticles: [ArticleMeta], initialIndex: Int, newspaperName: String, bearer: String, onJournal: @escaping () -> Void) {
         self.allArticles = allArticles
