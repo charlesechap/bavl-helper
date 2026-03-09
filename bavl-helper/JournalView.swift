@@ -223,7 +223,7 @@ struct JournalView: View {
                         articleList(safeTop: safeTop)
                     }
                 }
-                .padding(.top, safeTop + 44)
+                .padding(.top, safeTop + 64)  // hauteur barre = 64
                 .onScrollGeometryChange(for: CGFloat.self,
                     of: { $0.contentOffset.y },
                     action: { old, new in
@@ -410,18 +410,21 @@ struct JournalView: View {
 
     private func journalBar(safeTop: CGFloat) -> some View {
         VStack(spacing: 0) {
-            HStack(alignment: .center, spacing: 0) {
-                Spacer()
-                // Edition label (cliquable)
+            VStack(spacing: 3) {
+                Text(newspaper.name)
+                    .font(.system(.caption2, design: .monospaced))
+                    .foregroundStyle(Color(white: 0.40))
+                    .lineLimit(1)
                 Button { withAnimation(.easeOut(duration: 0.18)) { showEditionPicker.toggle() } } label: {
-                    Text(editionLabel)
+                    Text(dateLabel)
                         .font(.system(.callout, design: .monospaced))
                         .foregroundStyle(showEditionPicker ? activeColor : Color(white: 0.82))
                         .lineLimit(1)
                 }
-                Spacer()
+                .buttonStyle(.plain)
             }
-            .frame(height: 44)
+            .frame(maxWidth: .infinity)
+            .frame(height: 64)
             .background(bgColor)
             Divider().overlay(faintColor)
         }
@@ -459,15 +462,12 @@ struct JournalView: View {
                                     withAnimation(.easeOut(duration: 0.18)) { showEditionPicker = false }
                                     onEditionSelect(edition)
                                 } label: {
-                                    HStack(spacing: 0) {
-                                        Spacer()
-                                        Text(edition.displayLabel)
-                                            .font(.system(.callout, design: .monospaced))
-                                            .foregroundStyle(Color(white: 0.50))
-                                            .lineLimit(1)
-                                        Spacer()
-                                    }
-                                    .frame(height: 44)
+                                    Text(editionDateLabel(edition.date))
+                                        .font(.system(.callout, design: .monospaced))
+                                        .foregroundStyle(Color(white: 0.55))
+                                        .lineLimit(1)
+                                        .frame(maxWidth: .infinity)
+                                        .frame(height: 44)
                                 }
                                 .buttonStyle(.plain)
                                 Divider().overlay(faintColor)
@@ -484,16 +484,17 @@ struct JournalView: View {
 
     // MARK: - Helpers
 
-    private var editionLabel: String {
+    private var dateLabel: String {
         let dateStr = vm.currentDate
-        guard dateStr.count == 8 else { return newspaper.name }
+        guard dateStr.count == 8 else { return "—" }
         let fmt = DateFormatter()
         fmt.dateFormat = "yyyyMMdd"
-        guard let d = fmt.date(from: dateStr) else { return newspaper.name }
+        fmt.locale = Locale(identifier: "fr_CH")
+        guard let d = fmt.date(from: dateStr) else { return "—" }
         let disp = DateFormatter()
-        disp.dateStyle = .medium; disp.timeStyle = .none
+        disp.dateFormat = "EEEE d MMMM yyyy"   // "lundi 9 mars 2026"
         disp.locale = Locale(identifier: "fr_CH")
-        return "\(newspaper.name)  —  \(disp.string(from: d))"
+        return disp.string(from: d)
     }
 
     // Liste plate de tous les articles (pour TabView navigation)
