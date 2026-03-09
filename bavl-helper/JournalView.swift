@@ -520,7 +520,8 @@ struct JournalView: View {
         let disp = DateFormatter()
         disp.dateFormat = "EEEE d MMMM yyyy"   // "lundi 9 mars 2026"
         disp.locale = Locale(identifier: "fr_CH")
-        return disp.string(from: d)
+        let s = disp.string(from: d)
+        return s.prefix(1).uppercased() + s.dropFirst()
     }
 
     // Liste plate de tous les articles (pour TabView navigation)
