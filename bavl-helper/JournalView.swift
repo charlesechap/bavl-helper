@@ -463,24 +463,22 @@ struct JournalView: View {
             ScrollView(.vertical, showsIndicators: false) {
                 VStack(spacing: 0) {
                     ForEach(editions) { edition in
-                        let isCurrent = edition.date == vm.currentDate
-                        Button {
-                            if !isCurrent {
+                        if edition.date != vm.currentDate {
+                            Button {
                                 withAnimation(.easeInOut(duration: 0.22)) { showEditionPicker = false }
                                 onEditionSelect(edition)
+                            } label: {
+                                Text(editionDateLabel(edition.date))
+                                    .font(.system(.callout, design: .monospaced))
+                                    .foregroundStyle(Color(white: 0.55))
+                                    .lineLimit(1)
+                                    .frame(maxWidth: .infinity)
+                                    .frame(height: 44)
                             }
-                        } label: {
-                            Text(editionDateLabel(edition.date))
-                                .font(.system(.callout, design: .monospaced))
-                                .foregroundStyle(isCurrent ? activeColor : Color(white: 0.38))
-                                .lineLimit(1)
-                                .frame(maxWidth: .infinity)
-                                .frame(height: 44)
-                                .background(isCurrent ? Color(white: 0.14) : Color.clear)
+                            .buttonStyle(.plain)
+                            .id(edition.date)
+                            Divider().overlay(faintColor)
                         }
-                        .buttonStyle(.plain)
-                        .id(edition.date)
-                        Divider().overlay(faintColor)
                     }
                 }
             }
