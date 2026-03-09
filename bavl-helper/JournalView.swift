@@ -192,7 +192,6 @@ struct JournalView: View {
     @State private var selectedArticle: ArticleContent? = nil
     @State private var selectedArticleIndex: Int = 0
     @State private var loadingArticleId: Int64? = nil
-    @State private var showEditionPicker = false
     @State private var barVisible = true
     @State private var lastScrollY: CGFloat = 0
     @State private var previewMeta: ArticleMeta? = nil
@@ -223,7 +222,7 @@ struct JournalView: View {
                         articleList(safeTop: safeTop)
                     }
                 }
-                .padding(.top, safeTop + 64)  // hauteur barre = 64
+                .padding(.top, safeTop + 81)  // hauteur barre = 81 (36 nom + 1 sep + 44 carousel)
                 .onScrollGeometryChange(for: CGFloat.self,
                     of: { $0.contentOffset.y },
                     action: { old, new in
@@ -242,12 +241,7 @@ struct JournalView: View {
                 // TerminalBar
                 journalBar(safeTop: safeTop)
 
-                        // Edition picker overlay
-                if showEditionPicker {
-                    editionPickerOverlay(safeTop: safeTop)
-                        .zIndex(10)
-                        .transition(.opacity.combined(with: .move(edge: .top)))
-                }
+        
             }
             .ignoresSafeArea(edges: .top)
         }
@@ -410,26 +404,21 @@ struct JournalView: View {
 
     private func journalBar(safeTop: CGFloat) -> some View {
         VStack(spacing: 0) {
-            VStack(spacing: 3) {
-                Text(newspaper.name)
-                    .font(.system(.caption2, design: .monospaced))
-                    .foregroundStyle(Color(white: 0.40))
-                    .lineLimit(1)
-                Text(dateLabel)
-                    .font(.system(.callout, design: .monospaced))
-                    .foregroundStyle(showEditionPicker ? activeColor : Color(white: 0.82))
-                    .lineLimit(1)
-                    .onTapGesture { withAnimation(.easeOut(duration: 0.18)) { showEditionPicker.toggle() } }
-            }
-            .frame(maxWidth: .infinity)
-            .frame(height: 64)
-            .background(bgColor)
+            // Ligne 1 : nom du journal
+            Text(newspaper.name)
+                .font(.system(.subheadline, design: .monospaced, weight: .medium))
+                .foregroundStyle(Color(white: 0.75))
+                .lineLimit(1)
+                .frame(maxWidth: .infinity)
+                .frame(height: 36)
+                .background(bgColor)
+
             Divider().overlay(faintColor)
+
+            // Ligne 2 : carousel des éditions
+            editionCarousel
         }
-        .offset(y: barVisible ? 0 : -(safeTop + 44))
-        .opacity(barVisible ? 1 : 0)
-        .animation(.easeInOut(duration: 0.22), value: barVisible)
-        .offset(y: barVisible ? 0 : -(safeTop + 64))
+        .offset(y: barVisible ? 0 : -(safeTop + barHeight))
         .opacity(barVisible ? 1 : 0)
         .animation(.easeInOut(duration: 0.22), value: barVisible)
         .padding(.top, safeTop)
@@ -443,57 +432,43 @@ struct JournalView: View {
         )
     }
 
-    // MARK: - Edition picker
+    // Hauteur totale de la barre : nom (36) + séparateur (1) + carousel (44)
+    private var barHeight: CGFloat { 81 }
 
-    private func editionPickerOverlay(safeTop: CGFloat) -> some View {
-        ZStack(alignment: .top) {
-            Color.black.opacity(0.35)
-                .ignoresSafeArea()
-                .onTapGesture { withAnimation(.easeOut(duration: 0.18)) { showEditionPicker = false } }
-
-            VStack(spacing: 0) {
-                Color.clear.frame(height: safeTop + 44)
-
-                ScrollView {
-                    VStack(spacing: 0) {
-                        ForEach(editions) { edition in
-                            let isCurrent = edition.date == vm.currentDate
-                            if !isCurrent {
-                                Button {
-                                    withAnimation(.easeOut(duration: 0.18)) { showEditionPicker = false }
-                                    onEditionSelect(edition)
-                                } label: {
-                                    Text(editionDateLabel(edition.date))
-                                        .font(.system(.callout, design: .monospaced))
-                                        .foregroundStyle(Color(white: 0.55))
-                                        .lineLimit(1)
-                                        .frame(maxWidth: .infinity)
-                                        .frame(height: 44)
-                                }
-                                .buttonStyle(.plain)
-                                Divider().overlay(faintColor)
-                            }
+    @ViewBuilder
+    private var editionCarousel: some View {
+        ScrollViewReader { proxy in
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 0) {
+                    ForEach(editions) { edition in
+                        let isCurrent = edition.date == vm.currentDate
+                        Button {
+                            if !isCurrent { onEditionSelect(edition) }
+                        } label: {
+                            Text(editionDateLabel(edition.date))
+                                .font(.system(.callout, design: .monospaced))
+                                .foregroundStyle(isCurrent ? activeColor : Color(white: 0.38))
+                                .lineLimit(1)
+                                .padding(.horizontal, 16)
+                                .frame(height: 44)
+                                .background(isCurrent ? Color(white: 0.14) : Color.clear)
                         }
+                        .buttonStyle(.plain)
+                        .id(edition.date)
                     }
                 }
-                .frame(maxHeight: UIScreen.main.bounds.height * 0.50)
-                .background(bgColor)
+            }
+            .background(bgColor)
+            .onChange(of: vm.currentDate) { _, date in
+                withAnimation(.easeInOut(duration: 0.3)) { proxy.scrollTo(date, anchor: .center) }
+            }
+            .onAppear {
+                proxy.scrollTo(vm.currentDate, anchor: .center)
             }
         }
-        .transition(.opacity.combined(with: .move(edge: .top)))
+        Divider().overlay(faintColor)
     }
 
-        private func editionDateLabel(_ dateStr: String) -> String {
-        guard dateStr.count == 8 else { return dateStr }
-        let fmt = DateFormatter()
-        fmt.dateFormat = "yyyyMMdd"
-        fmt.locale = Locale(identifier: "fr_CH")
-        guard let d = fmt.date(from: dateStr) else { return dateStr }
-        let disp = DateFormatter()
-        disp.dateFormat = "EEEE d MMMM yyyy"
-        disp.locale = Locale(identifier: "fr_CH")
-        return disp.string(from: d)
-    }
 
     // MARK: - Helpers
 
