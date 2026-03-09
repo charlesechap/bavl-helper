@@ -189,54 +189,7 @@ struct ArticleReaderView: View {
             let safeTop = geo.safeAreaInsets.top
             ZStack(alignment: .top) {
                 Color(red: 0.13, green: 0.13, blue: 0.13).ignoresSafeArea()
-
-                TabView(selection: $currentIndex) {
-                    ForEach(Array(allArticles.enumerated()), id: \.offset) { idx, meta in
-                        ArticlePageView(
-                            meta: meta,
-                            prevMeta: idx > 0 ? allArticles[idx - 1] : nil,
-                            nextMeta: idx + 1 < allArticles.count ? allArticles[idx + 1] : nil,
-                            cache: cache,
-                            bearer: bearer,
-                            pressReaderPath: pressReaderPath,
-                            safeTop: safeTop,
-                            isActive: idx == currentIndex,
-                            barVisible: $barVisible,
-                            lastScrollY: $lastScrollY,
-                            onPrevArticle: { currentIndex = max(0, idx - 1) },
-                            onNextArticle: { currentIndex = idx + 1 },
-                            onJournal: onJournal,
-                            onShare: { text in shareText = text; showShare = true }
-                        )
-                        .tag(idx)
-                    }
-                }
-                .tabViewStyle(.page(indexDisplayMode: .never))
-                .ignoresSafeArea()
-                .onChange(of: currentIndex) { _, newIdx in
-                    // Prefetch article courant + voisins
-                    let ids = [newIdx - 1, newIdx, newIdx + 1]
-                        .filter { $0 >= 0 && $0 < allArticles.count }
-                        .map { allArticles[$0].id }
-                    cache.prefetch(ids: ids, bearer: bearer)
-                }
-                .onAppear {
-                    // Prefetch initial
-                    let ids = [initialIndex - 1, initialIndex, initialIndex + 1]
-                        .filter { $0 >= 0 && $0 < allArticles.count }
-                        .map { allArticles[$0].id }
-                    cache.prefetch(ids: ids, bearer: bearer)
-                }
-                .gesture(
-                    DragGesture(minimumDistance: 40)
-                        .onEnded { v in
-                            // Swipe down → retour journal
-                            if v.translation.height > 80 && abs(v.translation.width) < 60 {
-                                onJournal()
-                            }
-                        }
-                )
-
+                pageTabView(safeTop: safeTop)
                 readerBar(safeTop: safeTop)
             }
             .ignoresSafeArea(edges: .top)
@@ -245,6 +198,56 @@ struct ArticleReaderView: View {
             ShareSheet(items: [shareText])
         }
         .preferredColorScheme(.dark)
+    }
+
+    private func pageTabView(safeTop: CGFloat) -> some View {
+        TabView(selection: $currentIndex) {
+            ForEach(Array(allArticles.enumerated()), id: \.offset) { idx, meta in
+                pageView(idx: idx, meta: meta, safeTop: safeTop)
+                    .tag(idx)
+            }
+        }
+        .tabViewStyle(.page(indexDisplayMode: .never))
+        .ignoresSafeArea()
+        .onChange(of: currentIndex) { _, newIdx in
+            let ids = [newIdx - 1, newIdx, newIdx + 1]
+                .filter { $0 >= 0 && $0 < allArticles.count }
+                .map { allArticles[$0].id }
+            cache.prefetch(ids: ids, bearer: bearer)
+        }
+        .onAppear {
+            let ids = [initialIndex - 1, initialIndex, initialIndex + 1]
+                .filter { $0 >= 0 && $0 < allArticles.count }
+                .map { allArticles[$0].id }
+            cache.prefetch(ids: ids, bearer: bearer)
+        }
+        .gesture(
+            DragGesture(minimumDistance: 40)
+                .onEnded { v in
+                    if v.translation.height > 80 && abs(v.translation.width) < 60 {
+                        onJournal()
+                    }
+                }
+        )
+    }
+
+    private func pageView(idx: Int, meta: ArticleMeta, safeTop: CGFloat) -> some View {
+        ArticlePageView(
+            meta: meta,
+            prevMeta: idx > 0 ? allArticles[idx - 1] : nil,
+            nextMeta: idx + 1 < allArticles.count ? allArticles[idx + 1] : nil,
+            cache: cache,
+            bearer: bearer,
+            pressReaderPath: pressReaderPath,
+            safeTop: safeTop,
+            isActive: idx == currentIndex,
+            barVisible: $barVisible,
+            lastScrollY: $lastScrollY,
+            onPrevArticle: { currentIndex = max(0, idx - 1) },
+            onNextArticle: { currentIndex = idx + 1 },
+            onJournal: onJournal,
+            onShare: { text in shareText = text; showShare = true }
+        )
     }
 
     // MARK: - TerminalBar
