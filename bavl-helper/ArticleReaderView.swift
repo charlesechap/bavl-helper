@@ -247,33 +247,36 @@ struct ArticleReaderView: View {
 
     private func readerBar(safeTop: CGFloat) -> some View {
         VStack(spacing: 0) {
-            HStack(alignment: .center, spacing: 0) {
-                Spacer()
-                Button(action: onJournal) {
-                    Text(barLabel)
+            Button(action: onJournal) {
+                VStack(spacing: 3) {
+                    Text(newspaperName)
+                        .font(.system(.caption2, design: .monospaced))
+                        .foregroundStyle(Color(white: 0.40))
+                        .lineLimit(1)
+                    Text(barDateLabel)
                         .font(.system(.callout, design: .monospaced))
                         .foregroundStyle(Color(white: 0.82))
                         .lineLimit(1)
-                        .padding(.horizontal, 16)
                 }
-                .buttonStyle(.plain)
-                Spacer()
+                .frame(maxWidth: .infinity)
+                .frame(height: 64)
+                .background(Color(red: 0.13, green: 0.13, blue: 0.13))
             }
-            .frame(height: 44)
-            .background(Color(red: 0.13, green: 0.13, blue: 0.13))
+            .buttonStyle(.plain)
             Divider().overlay(Color(white: 0.20))
         }
         .padding(.top, safeTop)
     }
 
-    private var barLabel: String {
-        guard editionDate.count == 8 else { return newspaperName }
+    private var barDateLabel: String {
+        guard editionDate.count == 8 else { return "—" }
         let fmt = DateFormatter(); fmt.dateFormat = "yyyyMMdd"
-        guard let d = fmt.date(from: editionDate) else { return newspaperName }
+        fmt.locale = Locale(identifier: "fr_CH")
+        guard let d = fmt.date(from: editionDate) else { return "—" }
         let disp = DateFormatter()
-        disp.dateStyle = .medium; disp.timeStyle = .none
+        disp.dateFormat = "EEEE d MMMM yyyy"   // "lundi 9 mars 2026"
         disp.locale = Locale(identifier: "fr_CH")
-        return "\(newspaperName)  —  \(disp.string(from: d))"
+        return disp.string(from: d)
     }
 }
 
@@ -297,8 +300,6 @@ private struct ArticlePageView: View {
     @State private var loading = true
     // scrollID forcé à changer à chaque fois qu'on revient sur cet article
     @State private var scrollResetID = UUID()
-    @State private var barVisible = true
-    @State private var lastScrollY: CGFloat = 0
 
     var body: some View {
         ZStack(alignment: .top) {
@@ -308,7 +309,7 @@ private struct ArticlePageView: View {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 0) {
                         articleHeader(art)
-                            .padding(.top, safeTop + 44 + 20)
+                            .padding(.top, safeTop + 64 + 20)
                             .padding(.horizontal, 20)
 
                         Divider()
@@ -327,20 +328,7 @@ private struct ArticlePageView: View {
                 }
                 // Forcer le retour en haut à chaque activation de cette page
                 .id(scrollResetID)
-                .onScrollGeometryChange(for: CGFloat.self,
-                    of: { $0.contentOffset.y },
-                    action: { old, new in
-                        let delta = new - lastScrollY
-                        lastScrollY = new
-                        if new <= 0 {
-                            barVisible = true
-                        } else if delta > 6 {
-                            barVisible = false
-                        } else if delta < -6 {
-                            barVisible = true
-                        }
-                    }
-                )
+
             } else if loading {
                 VStack {
                     Spacer()
