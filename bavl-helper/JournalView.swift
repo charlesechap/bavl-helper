@@ -63,7 +63,7 @@ class JournalViewModel: ObservableObject {
     @Published var currentIssueId: String = ""
     @Published var currentDate: String = ""
 
-    enum LoadState { case idle, loading, ready, error(String) }
+    enum LoadState: Equatable { case idle, loading, ready, error(String) }
 
     private var bearerToken: String = ""
     private var pressReaderPath: String = ""
