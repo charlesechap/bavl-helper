@@ -223,21 +223,9 @@ struct ArticleReaderView: View {
         case .image:
             VStack(alignment: .leading, spacing: 6) {
                 if let url = para.imageURL {
-                    AsyncImage(url: url) { phase in
-                        switch phase {
-                        case .success(let img):
-                            img.resizable()
-                                .interpolation(.high)
-                                .aspectRatio(contentMode: .fit)
-                                .frame(maxWidth: .infinity)
-                        case .failure:
-                            EmptyView()
-                        default:
-                            Rectangle()
-                                .fill(Color(white: 0.18))
-                                .frame(maxWidth: .infinity, minHeight: 160)
-                        }
-                    }
+                    PressImage(url: url, contentMode: .fit)
+                        .frame(maxWidth: .infinity)
+                        .frame(minHeight: 160)
                 }
                 if !para.text.isEmpty {
                     Text(para.text)
