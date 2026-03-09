@@ -117,24 +117,27 @@ struct ArticleContent: Identifiable {
 }
 
 // MARK: - Cache articles partagé
-@MainActor
 final class ArticleCache: ObservableObject {
     private var cache: [Int64: ArticleContent] = [:]
     private var inFlight: Set<Int64> = []
 
-    func get(_ id: Int64) -> ArticleContent? { cache[id] }
+    @MainActor func get(_ id: Int64) -> ArticleContent? { cache[id] }
 
-    func prefetch(ids: [Int64], bearer: String) {
+    @MainActor func prefetch(ids: [Int64], bearer: String) {
         for id in ids where cache[id] == nil && !inFlight.contains(id) {
             inFlight.insert(id)
-            fetch(id: id, bearer: bearer)
+            _fetch(id: id, bearer: bearer)
         }
     }
 
-    func fetch(id: Int64, bearer: String, completion: ((ArticleContent?) -> Void)? = nil) {
+    @MainActor func fetch(id: Int64, bearer: String, completion: ((ArticleContent?) -> Void)? = nil) {
         if let cached = cache[id] { completion?(cached); return }
+        _fetch(id: id, bearer: bearer, completion: completion)
+    }
+
+    private func _fetch(id: Int64, bearer: String, completion: ((ArticleContent?) -> Void)? = nil) {
         guard let url = URL(string: "https://ingress.pressreader.com/services/v1/articles/\(id)/?articleFields=8191&isHyphenated=true&fullBody=true") else {
-            completion?(nil); return
+            DispatchQueue.main.async { completion?(nil) }; return
         }
         var req = URLRequest(url: url, timeoutInterval: 15)
         req.setValue("Bearer \(bearer)", forHTTPHeaderField: "Authorization")
