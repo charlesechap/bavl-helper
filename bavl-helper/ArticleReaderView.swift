@@ -643,7 +643,7 @@ private struct ArticlePageView: View {
         }
         .buttonStyle(.plain)
     }
-
+}
 
 // MARK: - ShareSheet
 private struct ShareSheet: UIViewControllerRepresentable {
