@@ -463,6 +463,9 @@ struct PressReaderWebView: UIViewRepresentable {
         }
 
         func navigateToEdition(_ edition: PressReaderEdition) {
+            // Reset pour permettre re-chargement du calendar + TOC
+            calendarLoaded = false
+            lastEditionLoaded = false
             navigateToTextView(date: edition.date)
         }
 
