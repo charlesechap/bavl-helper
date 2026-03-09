@@ -1,14 +1,13 @@
 import SwiftUI
 
-/// Charge une image depuis i.prcdn.co avec Accept: image/webp pour la pleine qualité.
+/// Charge une image PressReader via URLSession.
+/// L'URL doit déjà contenir le bon paramètre width (ex: &width=1170).
 struct PressImage: View {
     let url: URL
-    var width: CGFloat? = nil
-    var height: CGFloat? = nil
     var contentMode: ContentMode = .fill
 
     @State private var uiImage: UIImage? = nil
-    @State private var failed = false
+    @State private var loading = true
 
     var body: some View {
         Group {
@@ -17,29 +16,29 @@ struct PressImage: View {
                     .resizable()
                     .interpolation(.high)
                     .aspectRatio(contentMode: contentMode)
-            } else if failed {
-                EmptyView()
-            } else {
+            } else if loading {
                 Rectangle()
                     .fill(Color(white: 0.18))
             }
+            // Si loading=false et pas d'image → EmptyView implicite
         }
-        .frame(width: width, height: height)
         .task(id: url) { await load() }
     }
 
     private func load() async {
-        var req = URLRequest(url: url, timeoutInterval: 15)
-        req.setValue("image/webp,image/jpeg,image/*", forHTTPHeaderField: "Accept")
+        loading = true
+        uiImage = nil
+        var req = URLRequest(url: url, timeoutInterval: 12)
+        req.setValue("image/jpeg,image/*", forHTTPHeaderField: "Accept")
         do {
             let (data, _) = try await URLSession.shared.data(for: req)
             if let img = UIImage(data: data) {
-                await MainActor.run { uiImage = img }
+                await MainActor.run { uiImage = img; loading = false }
             } else {
-                await MainActor.run { failed = true }
+                await MainActor.run { loading = false }
             }
         } catch {
-            await MainActor.run { failed = true }
+            await MainActor.run { loading = false }
         }
     }
 }
