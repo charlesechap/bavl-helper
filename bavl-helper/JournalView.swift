@@ -193,6 +193,8 @@ struct JournalView: View {
     @State private var selectedArticleIndex: Int = 0
     @State private var loadingArticleId: Int64? = nil
     @State private var barVisible = true
+    @State private var dateOffset: CGFloat = 0
+    @State private var dateOpacity: Double = 1
     @State private var lastScrollY: CGFloat = 0
     @State private var previewMeta: ArticleMeta? = nil
     @State private var previewArticle: ArticleContent? = nil
@@ -415,7 +417,7 @@ struct JournalView: View {
 
             Divider().overlay(faintColor)
 
-            // Date de l'édition — swipe gauche = édition précédente, droite = suivante
+            // Date de l'édition — swipe suit le doigt, gauche = plus récente, droite = plus ancienne
             Text(dateLabel)
                 .font(.system(.callout, design: .monospaced))
                 .foregroundStyle(Color(white: 0.82))
@@ -424,15 +426,43 @@ struct JournalView: View {
                 .frame(height: 44)
                 .background(bgColor)
                 .contentShape(Rectangle())
+                .offset(x: dateOffset)
+                .opacity(dateOpacity)
                 .simultaneousGesture(
-                    DragGesture(minimumDistance: 30)
-                        .onEnded { v in
+                    DragGesture(minimumDistance: 10)
+                        .onChanged { v in
                             guard abs(v.translation.width) > abs(v.translation.height) else { return }
-                            guard let idx = editions.firstIndex(where: { $0.date == vm.currentDate }) else { return }
-                            if v.translation.width < 0 {
-                                if idx + 1 < editions.count { onEditionSelect(editions[idx + 1]) }
+                            dateOffset = v.translation.width
+                        }
+                        .onEnded { v in
+                            guard abs(v.translation.width) > abs(v.translation.height) else {
+                                withAnimation(.easeOut(duration: 0.2)) { dateOffset = 0 }
+                                return
+                            }
+                            guard let idx = editions.firstIndex(where: { $0.date == vm.currentDate }) else {
+                                withAnimation(.easeOut(duration: 0.2)) { dateOffset = 0 }
+                                return
+                            }
+                            // droite = plus ancienne (idx+1), gauche = plus récente (idx-1)
+                            let goNext = v.translation.width < 0 && idx > 0
+                            let goPrev = v.translation.width > 0 && idx + 1 < editions.count
+                            if goNext || goPrev {
+                                let direction: CGFloat = v.translation.width < 0 ? -400 : 400
+                                withAnimation(.easeIn(duration: 0.18)) {
+                                    dateOffset = direction
+                                    dateOpacity = 0
+                                }
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.18) {
+                                    dateOffset = -direction
+                                    let target = goNext ? editions[idx - 1] : editions[idx + 1]
+                                    onEditionSelect(target)
+                                    withAnimation(.easeOut(duration: 0.18)) {
+                                        dateOffset = 0
+                                        dateOpacity = 1
+                                    }
+                                }
                             } else {
-                                if idx > 0 { onEditionSelect(editions[idx - 1]) }
+                                withAnimation(.easeOut(duration: 0.2)) { dateOffset = 0 }
                             }
                         }
                 )
