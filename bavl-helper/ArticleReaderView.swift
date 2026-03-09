@@ -252,7 +252,7 @@ struct ArticleReaderView: View {
                 Button(action: onJournal) {
                     Text(barLabel)
                         .font(.system(.caption2, design: .monospaced))
-                        .foregroundStyle(Color(white: 0.35))
+                        .foregroundStyle(Color(white: 0.72))
                         .lineLimit(1)
                         .padding(.horizontal, 16)
                 }
@@ -405,6 +405,7 @@ private struct ArticlePageView: View {
                 .font(.system(size: 17, weight: .semibold))
                 .foregroundStyle(Color(white: 0.88))
                 .fixedSize(horizontal: false, vertical: true)
+                .textSelection(.enabled)
                 .padding(.top, 8).padding(.bottom, 4)
         case .subheading:
             Text(para.text)
@@ -459,6 +460,7 @@ private struct ArticlePageView: View {
                 .foregroundStyle(Color(white: 0.82))
                 .lineSpacing(5)
                 .fixedSize(horizontal: false, vertical: true)
+                .textSelection(.enabled)
         }
     }
 
@@ -511,19 +513,17 @@ private struct ArticlePageView: View {
         let active = Color(white: 0.82)
 
         VStack(spacing: 0) {
-            Rectangle().fill(faint).frame(height: 1)
+            Divider().overlay(faint)
+
+            // ── Article suivant ──
+            if let next = nextMeta {
+                adjacentArticleRow(meta: next, label: "suivant", active: active, dim: dim, action: onNextArticle)
+            }
 
             // ── Toolbar d'actions ──
+            Divider().overlay(faint)
             HStack(spacing: 0) {
-                // ← Précédent
-                toolbarButton(
-                    icon: "chevron.left",
-                    label: "précédent",
-                    enabled: prevMeta != nil,
-                    active: active, dim: dim
-                ) { onPrevArticle() }
-
-                // Partager (SF: square.and.arrow.up)
+                // Partager
                 toolbarButton(icon: "square.and.arrow.up", label: "partager", enabled: true, active: active, dim: dim) {
                     onShare(buildShareText(art))
                 }
@@ -544,7 +544,7 @@ private struct ArticlePageView: View {
                     toolbarButton(icon: "safari", label: "safari", enabled: true, active: active, dim: dim) {
                         UIApplication.shared.open(url)
                     }
-                    // Ouvrir dans PressReader (URL scheme)
+                    // Ouvrir dans PressReader
                     toolbarButton(icon: "arrow.up.forward.app", label: "pressreader", enabled: true, active: active, dim: dim) {
                         let deeplink = URL(string: "pressreader://article/\(art.id)") ?? url
                         if UIApplication.shared.canOpenURL(deeplink) {
@@ -554,30 +554,10 @@ private struct ArticlePageView: View {
                         }
                     }
                 }
-
-                // → Suivant
-                toolbarButton(
-                    icon: "chevron.right",
-                    label: "suivant",
-                    enabled: nextMeta != nil,
-                    active: active, dim: dim
-                ) { onNextArticle() }
             }
             .frame(height: 64)
             .padding(.horizontal, 8)
             .background(bg)
-
-            // ── Article précédent ──
-            if let prev = prevMeta {
-                Divider().overlay(faint).padding(.horizontal, 20)
-                adjacentArticleRow(meta: prev, label: "précédent", active: active, dim: dim, action: onPrevArticle)
-            }
-
-            // ── Article suivant ──
-            if let next = nextMeta {
-                Divider().overlay(faint).padding(.horizontal, 20)
-                adjacentArticleRow(meta: next, label: "suivant", active: active, dim: dim, action: onNextArticle)
-            }
 
             Color.clear.frame(height: 32)
         }
