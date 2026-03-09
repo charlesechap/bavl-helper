@@ -170,6 +170,8 @@ struct ArticleReaderView: View {
     @State private var showShare = false
     @State private var shareText: String = ""
     @State private var cache = ArticleCache()
+    @State private var barVisible = true
+    @State private var lastScrollY: CGFloat = 0
 
     init(allArticles: [ArticleMeta], initialIndex: Int, newspaperName: String, editionDate: String, pressReaderPath: String, bearer: String, onJournal: @escaping () -> Void) {
         self.allArticles = allArticles
@@ -199,6 +201,8 @@ struct ArticleReaderView: View {
                             pressReaderPath: pressReaderPath,
                             safeTop: safeTop,
                             isActive: idx == currentIndex,
+                            barVisible: $barVisible,
+                            lastScrollY: $lastScrollY,
                             onPrevArticle: { currentIndex = max(0, idx - 1) },
                             onNextArticle: { currentIndex = idx + 1 },
                             onJournal: onJournal,
@@ -300,8 +304,8 @@ private struct ArticlePageView: View {
     @State private var loading = true
     // scrollID forcé à changer à chaque fois qu'on revient sur cet article
     @State private var scrollResetID = UUID()
-    @State private var barVisible = true
-    @State private var lastScrollY: CGFloat = 0
+    @Binding var barVisible: Bool
+    @Binding var lastScrollY: CGFloat
 
     var body: some View {
         ZStack(alignment: .top) {
