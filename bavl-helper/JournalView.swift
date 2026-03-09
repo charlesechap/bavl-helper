@@ -35,7 +35,7 @@ struct ArticleMeta: Identifiable {
            let first = imgs.first,
            let rk = first["id"] as? String, !rk.isEmpty,
            let encoded = rk.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) {
-            thumbURL = URL(string: "https://i.prcdn.co/img?regionKey=\(encoded)&width=216")
+            thumbURL = URL(string: "https://i.prcdn.co/img?regionKey=\(encoded)&width=432")
         } else {
             thumbURL = nil
         }
@@ -289,10 +289,15 @@ struct JournalView: View {
                             .tint(dimColor)
                             .frame(width: 72, height: 72)
                     } else if let thumbURL = article.thumbnailURL {
-                        PressImage(url: thumbURL, contentMode: .fill)
-                            .frame(width: 72, height: 72)
-                            .cornerRadius(4)
-                            .clipped()
+                        AsyncImage(url: thumbURL) { img in
+                            img.resizable()
+                                .aspectRatio(contentMode: .fill)
+                        } placeholder: {
+                            Color(white: 0.18)
+                        }
+                        .frame(width: 72, height: 72)
+                        .cornerRadius(4)
+                        .clipped()
                     } else if let p = article.pageNumber {
                         Text("p.\(p)")
                             .font(.system(.caption2, design: .monospaced))
