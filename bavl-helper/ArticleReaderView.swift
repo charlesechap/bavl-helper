@@ -551,7 +551,6 @@ private struct ArticlePageView: View {
             .background(bg)
         }
         .background(bg)
-        .padding(.top, 24)
     }
 
     @ViewBuilder
