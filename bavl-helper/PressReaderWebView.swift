@@ -463,10 +463,15 @@ struct PressReaderWebView: UIViewRepresentable {
         }
 
         func navigateToEdition(_ edition: PressReaderEdition) {
-            // Reset complet pour permettre re-chargement du calendar + TOC
+            // Construire issueId depuis la date choisie et charger TOC directement
+            // sans repasser par le calendar (qui renverrait toujours la dernière édition)
+            currentIssueId = ""
             calendarLoaded = false
             lastEditionLoaded = false
-            currentIssueId = ""
+            currentDate = edition.date
+            let issueIdLong = "\(shortCid)\(edition.date)00000000001001"
+            print("BAVL navigateToEdition: \(edition.date) → issueId=\(issueIdLong)")
+            loadTOC(issueId: issueIdLong)
             navigateToTextView(date: edition.date)
         }
 
