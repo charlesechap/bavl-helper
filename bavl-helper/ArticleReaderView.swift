@@ -251,8 +251,8 @@ struct ArticleReaderView: View {
                 Spacer()
                 Button(action: onJournal) {
                     Text(barLabel)
-                        .font(.system(.caption2, design: .monospaced))
-                        .foregroundStyle(Color(white: 0.72))
+                        .font(.system(.callout, design: .monospaced))
+                        .foregroundStyle(Color(white: 0.82))
                         .lineLimit(1)
                         .padding(.horizontal, 16)
                 }
