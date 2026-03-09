@@ -664,6 +664,7 @@ struct PressReaderSheet: View {
                 editions: editions,
                 onDismiss: { dismiss() },
                 onEditionSelect: { edition in
+                    journalVM.currentDate = edition.date
                     journalVM.resetForEditionChange()
                     coordinator?.navigateToEdition(edition)
                 }
