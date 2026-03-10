@@ -264,12 +264,13 @@ struct JournalView: View {
             theme.background.ignoresSafeArea()
             editionTabView
         }
-        .safeAreaInset(edge: .top, spacing: 0) {
+        .overlay(alignment: .top) {
             NavBar(
                 title: newspaper.name,
                 subtitle: currentDateLabel,
                 visible: barVisible
             )
+            .ignoresSafeArea(edges: .top)
         }
         .sheet(item: $selectedArticle) { _ in
             ArticleReaderView(
@@ -361,6 +362,8 @@ struct JournalView: View {
             Spacer()
         }
         .frame(maxWidth: .infinity)
+        // Espace sous la NavBar flottante (elle est en overlay, pas safeAreaInset)
+        .padding(.top, NavBar.height)
     }
 
     // MARK: - Liste articles
@@ -377,10 +380,13 @@ struct JournalView: View {
                         sectionHeader(section.id)
                     }
                 }
-                // Breathing room en bas
+                // Breathing room en bas (+ safe area)
                 Color.clear.frame(height: 48)
             }
         }
+        // Réserve l'espace sous le NavBar flottant pour le contenu scrollable
+        .contentMargins(.top, barVisible ? NavBar.height : 0, for: .scrollContent)
+        .contentMargins(.top, barVisible ? NavBar.height : 0, for: .scrollIndicators)
         .onScrollGeometryChange(for: CGFloat.self,
             of: { $0.contentOffset.y + $0.contentInsets.top },
             action: { _, new in
@@ -677,4 +683,5 @@ private extension String {
         return utf8
     }
 }
+
 
