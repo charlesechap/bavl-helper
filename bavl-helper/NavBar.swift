@@ -1,44 +1,65 @@
 import SwiftUI
 
-/// Barre de navigation partagée — JournalView et ArticleReaderView.
-/// Placée en .overlay(alignment: .top) sur le ZStack parent.
-/// La safe area top est gérée par .background(.ignoresSafeArea) seulement.
-struct NavBar: View {
+// Barre de navigation lecture — intégrée via .safeAreaInset(edge: .top, spacing: 0)
+// Le scroll gère seul l'espace : pas de contentMargins, pas de barVisible.
+
+struct ReadingBar: View {
     let title: String
     let subtitle: String
-    let visible: Bool
-
-    /// Hauteur des deux lignes de contenu (hors safe area top)
-    static let height: CGFloat = 89
-
-    private let bg   = Color(red: 0.13, green: 0.13, blue: 0.13)
-    private let line = Color(white: 0.20)
-    private let col1 = Color(white: 0.82)
-    private let col2 = Color(white: 0.55)
+    let theme: ReadingTheme   // reçoit le même thème que la vue parente
 
     var body: some View {
         VStack(spacing: 0) {
-            Text(title)
-                .font(.system(.callout, design: .monospaced))
-                .foregroundStyle(col1)
-                .lineLimit(1)
-                .frame(maxWidth: .infinity)
-                .frame(height: 44)
-
-            Divider().overlay(line)
-
-            Text(subtitle)
-                .font(.system(.callout, design: .monospaced))
-                .foregroundStyle(col2)
-                .lineLimit(1)
-                .frame(maxWidth: .infinity)
-                .frame(height: 44)
-
-            Divider().overlay(line)
+            HStack(alignment: .center, spacing: 0) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title)
+                        .font(.system(size: 15, weight: .semibold, design: .serif))
+                        .foregroundStyle(theme.textPrimary)
+                        .lineLimit(1)
+                    Text(subtitle)
+                        .font(.system(size: 12, weight: .regular, design: .serif).italic())
+                        .foregroundStyle(theme.textTertiary)
+                        .lineLimit(1)
+                }
+                Spacer()
+            }
+            .padding(.horizontal, 18)
+            .padding(.vertical, 10)
+            Rectangle()
+                .fill(theme.divider)
+                .frame(height: 0.5)
         }
-        // Le fond s'étend sous le notch/Dynamic Island
-        .background(bg.ignoresSafeArea(edges: .top))
-        .offset(y: visible ? 0 : -(NavBar.height + 200))
-        .animation(.easeInOut(duration: 0.22), value: visible)
+        .background(theme.background)
+    }
+}
+
+// Variante pour ArticleReaderView qui utilise NewsTheme
+struct ReadingBarNight: View {
+    let title: String
+    let subtitle: String
+    let theme: NewsTheme
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack(alignment: .center, spacing: 0) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title)
+                        .font(.system(size: 15, weight: .semibold, design: .serif))
+                        .foregroundStyle(theme.textPrimary)
+                        .lineLimit(1)
+                    Text(subtitle)
+                        .font(.system(size: 12, weight: .regular, design: .serif).italic())
+                        .foregroundStyle(theme.textTertiary)
+                        .lineLimit(1)
+                }
+                Spacer()
+            }
+            .padding(.horizontal, 18)
+            .padding(.vertical, 10)
+            Rectangle()
+                .fill(theme.divider)
+                .frame(height: 0.5)
+        }
+        .background(theme.background)
     }
 }
