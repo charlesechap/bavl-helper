@@ -867,7 +867,7 @@ private struct BarBtn: View {
 
 // MARK: - Bridge
 
-private struct _PressReaderWebViewBridge: UIViewRepresentable {
+struct _PressReaderWebViewBridge: UIViewRepresentable {
     let initialURL: URL
     let pressReaderPath: String
     var onCoordinatorReady: (PressReaderWebView.Coordinator) -> Void
