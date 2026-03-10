@@ -180,12 +180,13 @@ struct ArticleReaderView: View {
             theme.background.ignoresSafeArea()
             articleTabView
         }
-        .safeAreaInset(edge: .top, spacing: 0) {
+        .overlay(alignment: .top) {
             NavBar(
                 title: newspaper.name,
                 subtitle: barDateLabel,
                 visible: barVisible
             )
+            .ignoresSafeArea(edges: .top)
         }
         .sheet(isPresented: $showShare) {
             ShareSheet(items: [shareText])
@@ -280,6 +281,9 @@ private struct ArticlePageView: View {
                     }
                 }
                 .id(scrollResetID)
+                // Réserve l'espace sous le NavBar flottant
+                .contentMargins(.top, barVisible ? NavBar.height : 0, for: .scrollContent)
+                .contentMargins(.top, barVisible ? NavBar.height : 0, for: .scrollIndicators)
                 .onScrollGeometryChange(for: CGFloat.self,
                     of: { $0.contentOffset.y + $0.contentInsets.top },
                     action: { _, new in
@@ -579,6 +583,7 @@ private struct ArticlePageView: View {
             Color.clear.frame(height: 32)
         }
         .background(theme.surface)
+        .safeAreaPadding(.bottom)
     }
 
     @ViewBuilder
@@ -693,3 +698,4 @@ private extension String {
         return utf8
     }
 }
+
