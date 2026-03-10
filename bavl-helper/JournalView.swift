@@ -250,8 +250,6 @@ struct JournalView: View {
     @State private var selectedArticle: ArticleContent? = nil
     @State private var selectedArticleIndex: Int = 0
     @State private var loadingArticleId: Int64? = nil
-    @State private var barVisible = true
-    @State private var lastScrollY: CGFloat = 0
     @State private var previewMeta: ArticleMeta? = nil
     @State private var previewArticle: ArticleContent? = nil
     @State private var loadingPreviewId: Int64? = nil
@@ -264,12 +262,8 @@ struct JournalView: View {
             theme.background.ignoresSafeArea()
             editionTabView
         }
-        .overlay(alignment: .top) {
-            NavBar(
-                title: newspaper.name,
-                subtitle: currentDateLabel,
-                visible: barVisible
-            )
+        .safeAreaInset(edge: .top, spacing: 0) {
+            ReadingBar(title: newspaper.name, subtitle: currentDateLabel, theme: theme)
         }
         .sheet(item: $selectedArticle) { _ in
             ArticleReaderView(
@@ -328,8 +322,6 @@ struct JournalView: View {
             guard !editions.isEmpty, newIdx < editions.count else { return }
             let edition = editions[newIdx]
             guard edition.date != vm.currentDate else { return }
-            lastScrollY = 0
-            withAnimation(.easeInOut(duration: 0.22)) { barVisible = true }
             onEditionSelect(edition)
         }
     }
@@ -360,10 +352,7 @@ struct JournalView: View {
                 .foregroundStyle(theme.textTertiary)
             Spacer()
         }
-        .frame(maxWidth: .infinity)
-        // Espace sous la NavBar flottante (elle est en overlay, pas safeAreaInset)
-        .padding(.top, NavBar.height)
-    }
+        .frame(maxWidth: .infinity)    }
 
     // MARK: - Liste articles
 
@@ -383,23 +372,6 @@ struct JournalView: View {
                 Color.clear.frame(height: 48)
             }
         }
-        // Réserve l'espace sous le NavBar flottant pour le contenu scrollable
-        .contentMargins(.top, barVisible ? NavBar.height : 0, for: .scrollContent)
-        .contentMargins(.top, barVisible ? NavBar.height : 0, for: .scrollIndicators)
-        .onScrollGeometryChange(for: CGFloat.self,
-            of: { $0.contentOffset.y + $0.contentInsets.top },
-            action: { _, new in
-                let delta = new - lastScrollY
-                lastScrollY = new
-                if new <= 0 {
-                    withAnimation(.easeInOut(duration: 0.22)) { barVisible = true }
-                } else if delta > 6 {
-                    withAnimation(.easeInOut(duration: 0.22)) { barVisible = false }
-                } else if delta < -6 {
-                    withAnimation(.easeInOut(duration: 0.22)) { barVisible = true }
-                }
-            }
-        )
     }
 
     // MARK: - Article row
@@ -682,5 +654,6 @@ private extension String {
         return utf8
     }
 }
+
 
 
