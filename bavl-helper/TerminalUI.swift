@@ -9,74 +9,6 @@ extension Color {
     static let termFaint  = Color(red: 0.30, green: 0.30, blue: 0.30)
 }
 
-// MARK: - Cadre terminal
-
-struct TerminalFrame<Content: View>: View {
-    let title: String?
-    @ViewBuilder let content: () -> Content
-
-    init(title: String? = nil, @ViewBuilder content: @escaping () -> Content) {
-        self.title = title
-        self.content = content
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            topBar
-            HStack(alignment: .top, spacing: 0) {
-                Text("│")
-                    .font(.system(.caption2, design: .monospaced))
-                    .foregroundStyle(Color.termFaint)
-                content()
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                Text("│")
-                    .font(.system(.caption2, design: .monospaced))
-                    .foregroundStyle(Color.termFaint)
-            }
-            bottomBar
-        }
-    }
-
-    private var topBar: some View {
-        HStack(spacing: 0) {
-            Text("┌─")
-                .font(.system(.caption2, design: .monospaced))
-                .foregroundStyle(Color.termFaint)
-            if let title {
-                Text("[ \(title) ]─")
-                    .font(.system(.caption2, design: .monospaced))
-                    .foregroundStyle(Color.termDim)
-            }
-            expandingLine
-            Text("┐")
-                .font(.system(.caption2, design: .monospaced))
-                .foregroundStyle(Color.termFaint)
-        }
-    }
-
-    private var bottomBar: some View {
-        HStack(spacing: 0) {
-            Text("└─")
-                .font(.system(.caption2, design: .monospaced))
-                .foregroundStyle(Color.termFaint)
-            expandingLine
-            Text("┘")
-                .font(.system(.caption2, design: .monospaced))
-                .foregroundStyle(Color.termFaint)
-        }
-    }
-
-    private var expandingLine: some View {
-        GeometryReader { geo in
-            Text(String(repeating: "─", count: max(0, Int(geo.size.width / 6.3))))
-                .font(.system(.caption2, design: .monospaced))
-                .foregroundStyle(Color.termFaint)
-                .lineLimit(1)
-        }
-        .frame(height: 16)
-    }
-}
-
 // MARK: - Signature
 
 struct TerminalSignature: View {
@@ -159,4 +91,3 @@ struct TerminalButton: View {
         .disabled(!enabled)
     }
 }
-

@@ -45,7 +45,7 @@ class AppViewModel: NSObject, ObservableObject {
         set { KeychainHelper.save(newValue, forKey: "password") }
     }
 
-    // MARK: - Session check (amélioration 2 : vérification réelle)
+    // MARK: - Session check
     func checkExistingSession() {
         guard !cardNumber.isEmpty, !password.isEmpty else {
             loginState = .idle
@@ -134,6 +134,7 @@ class AppViewModel: NSObject, ObservableObject {
         }
 
         teardownWebView()
+        teardownPreloadedWebViews()  // nettoyage des préchargements existants
         isVerifyingSession = false
         retryCount = 0
         loginState = .loading
@@ -153,7 +154,7 @@ class AppViewModel: NSObject, ObservableObject {
         wv.load(URLRequest(url: url))
     }
 
-    // MARK: - Retry (amélioration 1)
+    // MARK: - Retry
     private func retryLoginIfPossible(reason: String) {
         if retryCount < maxRetries {
             retryCount += 1
@@ -194,13 +195,11 @@ class AppViewModel: NSObject, ObservableObject {
         guard let html = String(data: data, encoding: .utf8) else { return nil }
 
         // PressReader encode les dates dans les URLs des archives sous la forme /YYYYMMDD
-        // On cherche le pattern /chemin/YYYYMMDD qui apparaît dans les liens d'archive
         let pattern = newspaper.pressReaderPath + #"/(\d{8})"#
         guard let regex = try? NSRegularExpression(pattern: pattern) else { return nil }
         let range = NSRange(html.startIndex..., in: html)
         let matches = regex.matches(in: html, range: range)
 
-        // Extraire toutes les dates et prendre la plus récente
         let dates = matches.compactMap { match -> String? in
             guard let r = Range(match.range(at: 1), in: html) else { return nil }
             return String(html[r])
@@ -211,8 +210,6 @@ class AppViewModel: NSObject, ObservableObject {
 
 
     // MARK: - Préchargement PressReader
-    // Lance un WKWebView caché par journal pendant l'animation canard.
-    // DuckLoadingView laisse ~3s → les pages ont le temps de commencer à charger.
     func preloadPressReaderPages() {
         for newspaper in newspapers {
             guard let url = newspaper.resolvedURL else { continue }
@@ -234,10 +231,8 @@ class AppViewModel: NSObject, ObservableObject {
     }
 
     // Récupère le WKWebView préchargé, le retire du pool et de la window cachée.
-    // Le bridge SwiftUI le réattache comme UIView visible.
     func consumePreloaded(for path: String) -> WKWebView? {
         guard let wv = preloadedWebViews.removeValue(forKey: path) else { return nil }
-        // Retirer de la window cachée — SwiftUI va le réattacher dans PressReaderSheet
         wv.removeFromSuperview()
         print("Consommé preload: \(path) — isLoading=\(wv.isLoading) url=\(wv.url?.absoluteString ?? "nil")")
         return wv
@@ -249,6 +244,15 @@ class AppViewModel: NSObject, ObservableObject {
         webView?.stopLoading()
         webView?.removeFromSuperview()
         webView = nil
+    }
+
+    // MARK: - Teardown Preloaded WebViews
+    private func teardownPreloadedWebViews() {
+        for (_, wv) in preloadedWebViews {
+            wv.stopLoading()
+            wv.removeFromSuperview()
+        }
+        preloadedWebViews.removeAll()
     }
 
     // MARK: - Étape 2 : navigation vers PressReader
@@ -313,7 +317,6 @@ class AppViewModel: NSObject, ObservableObject {
             if let error = error {
                 print("JS error login: \(error)")
             }
-            // Si le script retourne fields_not_found, on réessaie
             if let result = result as? String, result == "fields_not_found" {
                 Task { @MainActor in
                     self?.retryLoginIfPossible(reason: "formulaire introuvable")
@@ -331,15 +334,12 @@ extension AppViewModel: WKNavigationDelegate {
             guard let url = webView.url?.absoluteString else { return }
             print("Page chargée: \(url)")
 
-            // MODE LOGIN NORMAL
             if url.contains("offre-numerique-pressreader-acces") {
                 appendLog("Auth réussie — ouverture PressReader...")
-                // Pas de sleep : on réagit directement à didFinish
                 performAccessScript()
 
             } else if url.contains("offre-numerique-pressreader") {
                 appendLog("Formulaire détecté — saisie des identifiants...")
-                // Pas de sleep : la page est chargée, on exécute le script
                 appendLog("Envoi des identifiants...")
                 performLoginScript()
 
@@ -367,7 +367,6 @@ extension AppViewModel: WKNavigationDelegate {
     nonisolated func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
         Task { @MainActor in
             let nsError = error as NSError
-            // Ignorer les annulations volontaires (changement de page pendant navigation)
             guard nsError.code != NSURLErrorCancelled else { return }
             retryLoginIfPossible(reason: error.localizedDescription)
         }
@@ -381,7 +380,3 @@ extension AppViewModel: WKNavigationDelegate {
         }
     }
 }
-
-
-
-
