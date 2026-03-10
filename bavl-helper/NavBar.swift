@@ -1,52 +1,44 @@
 import SwiftUI
 
 /// Barre de navigation partagée — JournalView et ArticleReaderView.
-///
-/// Utilisée en .overlay(alignment: .top) { NavBar().ignoresSafeArea(edges: .top) }
-/// Le contenu scrollable doit réserver NavBar.height via contentMargins.
+/// Placée en .overlay(alignment: .top) sur le ZStack parent.
+/// La safe area top est gérée par .background(.ignoresSafeArea) seulement.
 struct NavBar: View {
     let title: String
     let subtitle: String
     let visible: Bool
 
-    /// Hauteur de la barre (2 lignes × 44pt + séparateur) — hors safe area top
+    /// Hauteur des deux lignes de contenu (hors safe area top)
     static let height: CGFloat = 89
 
-    private let bgColor       = Color(red: 0.13, green: 0.13, blue: 0.13)
-    private let faint         = Color(white: 0.20)
-    private let titleColor    = Color(white: 0.82)
-    private let subtitleColor = Color(white: 0.55)
+    private let bg   = Color(red: 0.13, green: 0.13, blue: 0.13)
+    private let line = Color(white: 0.20)
+    private let col1 = Color(white: 0.82)
+    private let col2 = Color(white: 0.55)
 
     var body: some View {
         VStack(spacing: 0) {
-            // Zone safe area — fond seulement, pas de contenu
-            Color.clear
-                .frame(maxWidth: .infinity)
-
-            // Ligne 1 : titre
             Text(title)
                 .font(.system(.callout, design: .monospaced))
-                .foregroundStyle(titleColor)
+                .foregroundStyle(col1)
                 .lineLimit(1)
                 .frame(maxWidth: .infinity)
                 .frame(height: 44)
 
-            Divider().overlay(faint)
+            Divider().overlay(line)
 
-            // Ligne 2 : sous-titre / date
             Text(subtitle)
                 .font(.system(.callout, design: .monospaced))
-                .foregroundStyle(subtitleColor)
+                .foregroundStyle(col2)
                 .lineLimit(1)
                 .frame(maxWidth: .infinity)
                 .frame(height: 44)
 
-            Divider().overlay(faint)
+            Divider().overlay(line)
         }
-        .background(bgColor.ignoresSafeArea(edges: .top))
-        // Animation : glisse vers le haut et disparaît
-        .offset(y: visible ? 0 : -NavBar.height)
-        .opacity(visible ? 1 : 0)
+        // Le fond s'étend sous le notch/Dynamic Island
+        .background(bg.ignoresSafeArea(edges: .top))
+        .offset(y: visible ? 0 : -(NavBar.height + 200))
         .animation(.easeInOut(duration: 0.22), value: visible)
     }
 }
