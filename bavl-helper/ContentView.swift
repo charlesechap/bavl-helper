@@ -17,10 +17,8 @@ struct ContentView: View {
                 VStack(alignment: .leading, spacing: 0) {
 
                     if showNewspapers {
-                        // ── Liste journaux : pas de canard ───────────────────
                         newspaperListView
                     } else {
-                        // ── Écran login / chargement / idle ──────────────────
                         ZStack(alignment: .bottomTrailing) {
                             DuckHeaderView(
                                 walking:        walking,
@@ -34,17 +32,11 @@ struct ContentView: View {
                             )
                             .padding(.vertical, 12)
                         }
-                        // Préchargement silencieux pendant l'animation canard
-                        if walking {
-                            PreloaderView(vm: vm)
-                        }
+                        if walking { PreloaderView(vm: vm) }
 
                         if walking {
-                            WalkLogView(
-                                log:            vm.statusLog,
-                                currentMessage: vm.statusMessage
-                            )
-                            .frame(maxWidth: isIPad ? 600 : .infinity)
+                            WalkLogView(log: vm.statusLog, currentMessage: vm.statusMessage)
+                                .frame(maxWidth: isIPad ? 600 : .infinity)
                         } else {
                             idleView
                         }
@@ -76,13 +68,8 @@ struct ContentView: View {
                 vm.checkExistingSession()
             }
             .onChange(of: vm.loginState) { _, state in
-                if case .loading = state {
-                    walking        = true
-                    showNewspapers = false
-                }
-                if case .failure = state {
-                    walking = false
-                }
+                if case .loading = state { walking = true; showNewspapers = false }
+                if case .failure = state { walking = false }
             }
         }
         .preferredColorScheme(.dark)
@@ -119,11 +106,7 @@ struct ContentView: View {
             Divider().overlay(Color.termFaint).padding(.horizontal)
             ScrollView {
                 if isIPad { iPadGrid } else { phoneList }
-                // Safe area bottom
-                Color.clear.frame(height: 20)
             }
-            // Scroll indicators dans la safe area
-            .contentMargins(.bottom, 0, for: .scrollIndicators)
         }
     }
 
@@ -163,9 +146,7 @@ struct ContentView: View {
 
     @ViewBuilder
     private func newspaperRow(paper: Newspaper, index: Int) -> some View {
-        Button {
-            selectedPaper = paper
-        } label: {
+        Button { selectedPaper = paper } label: {
             HStack(alignment: .top, spacing: 8) {
                 Text(String(format: "%02d.", index + 1))
                     .font(.system(.body, design: .monospaced))
