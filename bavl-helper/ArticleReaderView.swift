@@ -159,8 +159,6 @@ struct ArticleReaderView: View {
     @State private var showShare = false
     @State private var shareText: String = ""
     @State private var cache = ArticleCache()
-    @State private var barVisible = true
-    @State private var lastScrollY: CGFloat = 0
 
     private let theme = NewsTheme.night
 
@@ -180,12 +178,8 @@ struct ArticleReaderView: View {
             theme.background.ignoresSafeArea()
             articleTabView
         }
-        .overlay(alignment: .top) {
-            NavBar(
-                title: newspaper.name,
-                subtitle: barDateLabel,
-                visible: barVisible
-            )
+        .safeAreaInset(edge: .top, spacing: 0) {
+            ReadingBarNight(title: newspaper.name, subtitle: barDateLabel, theme: theme)
         }
         .sheet(isPresented: $showShare) {
             ShareSheet(items: [shareText])
@@ -209,9 +203,7 @@ struct ArticleReaderView: View {
                     onPrevArticle: { currentIndex = max(0, idx - 1) },
                     onNextArticle: { currentIndex = idx + 1 },
                     onJournal: onJournal,
-                    onShare: { text in shareText = text; showShare = true },
-                    barVisible: $barVisible,
-                    lastScrollY: $lastScrollY
+                    onShare: { text in shareText = text; showShare = true }
                 )
                 .tag(idx)
             }
@@ -264,8 +256,6 @@ private struct ArticlePageView: View {
     @State private var article: ArticleContent? = nil
     @State private var loading = true
     @State private var scrollResetID = UUID()
-    @Binding var barVisible: Bool
-    @Binding var lastScrollY: CGFloat
 
     var body: some View {
         ZStack {
@@ -280,23 +270,6 @@ private struct ArticlePageView: View {
                     }
                 }
                 .id(scrollResetID)
-                // Réserve l'espace sous le NavBar flottant
-                .contentMargins(.top, barVisible ? NavBar.height : 0, for: .scrollContent)
-                .contentMargins(.top, barVisible ? NavBar.height : 0, for: .scrollIndicators)
-                .onScrollGeometryChange(for: CGFloat.self,
-                    of: { $0.contentOffset.y + $0.contentInsets.top },
-                    action: { _, new in
-                        let delta = new - lastScrollY
-                        lastScrollY = new
-                        if new <= 0 {
-                            withAnimation(.easeInOut(duration: 0.22)) { barVisible = true }
-                        } else if delta > 6 {
-                            withAnimation(.easeInOut(duration: 0.22)) { barVisible = false }
-                        } else if delta < -6 {
-                            withAnimation(.easeInOut(duration: 0.22)) { barVisible = true }
-                        }
-                    }
-                )
 
             } else if loading {
                 VStack {
@@ -697,4 +670,5 @@ private extension String {
         return utf8
     }
 }
+
 
