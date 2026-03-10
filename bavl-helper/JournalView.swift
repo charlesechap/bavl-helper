@@ -270,7 +270,6 @@ struct JournalView: View {
                 subtitle: currentDateLabel,
                 visible: barVisible
             )
-            .ignoresSafeArea(edges: .top)
         }
         .sheet(item: $selectedArticle) { _ in
             ArticleReaderView(
