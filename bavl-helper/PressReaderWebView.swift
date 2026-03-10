@@ -688,6 +688,7 @@ struct PressReaderSheet: View {
             )
         }
         .preferredColorScheme(.dark)
+        .ignoresSafeArea(edges: .top)
     }
 }
 

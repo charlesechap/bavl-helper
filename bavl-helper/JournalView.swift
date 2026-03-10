@@ -206,7 +206,7 @@ struct JournalView: View {
     private let faintColor = Color(white: 0.20)
 
     var body: some View {
-        ZStack(alignment: .top) {
+        ZStack {
             bgColor.ignoresSafeArea()
 
             // Contenu principal
@@ -216,11 +216,10 @@ struct JournalView: View {
             case .error(let msg): centeredMessage("Erreur : \(msg)")
             case .ready:   articleList
             }
-
-            // TerminalBar
+        }
+        .safeAreaInset(edge: .top, spacing: 0) {
             journalBar
         }
-        .ignoresSafeArea(edges: .top)
         // Sheet article (TabView multi-articles)
         .sheet(item: $selectedArticle) { _ in
             ArticleReaderView(
@@ -278,9 +277,6 @@ struct JournalView: View {
                 }
                 Color.clear.frame(height: 32)
             }
-        }
-        .safeAreaInset(edge: .top, spacing: 0) {
-            Color.clear.frame(height: barVisible ? barHeight : 0)
         }
         .onScrollGeometryChange(for: CGFloat.self,
             of: { $0.contentOffset.y },
@@ -393,42 +389,41 @@ struct JournalView: View {
         }
     }
 
+    // MARK: - TerminalBar
+    // Placée via .safeAreaInset(edge: .top) sur le ZStack parent.
+    // SwiftUI gère automatiquement le notch/Dynamic Island — aucun calcul manuel.
+    // Pour l'animation hide : on réduit la hauteur à 0 + opacity 0.
     private var journalBar: some View {
         VStack(spacing: 0) {
-            // Remplissage de la safe area (notch / Dynamic Island)
-            Color.clear
-                .frame(maxWidth: .infinity)
-                .frame(height: 0)   // SwiftUI gère via ignoresSafeArea du parent
-                .background(bgColor)
-
             Text(newspaper.name)
                 .font(.system(.callout, design: .monospaced))
                 .foregroundStyle(Color(white: 0.82))
                 .lineLimit(1)
                 .frame(maxWidth: .infinity)
-                .frame(height: 44)
+                .frame(height: barVisible ? 44 : 0)
                 .background(bgColor)
+                .clipped()
 
-            Divider().overlay(faintColor)
+            if barVisible {
+                Divider().overlay(faintColor)
 
-            Text(dateLabel)
-                .font(.system(.callout, design: .monospaced))
-                .foregroundStyle(Color(white: 0.55))
-                .lineLimit(1)
-                .frame(maxWidth: .infinity)
-                .frame(height: 44)
-                .background(bgColor)
-                .id(vm.currentDate)
-                .transition(.asymmetric(
-                    insertion: .move(edge: editionInsertEdge).combined(with: .opacity),
-                    removal:   .move(edge: editionRemoveEdge).combined(with: .opacity)
-                ))
+                Text(dateLabel)
+                    .font(.system(.callout, design: .monospaced))
+                    .foregroundStyle(Color(white: 0.55))
+                    .lineLimit(1)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 44)
+                    .background(bgColor)
+                    .id(vm.currentDate)
+                    .transition(.asymmetric(
+                        insertion: .move(edge: editionInsertEdge).combined(with: .opacity),
+                        removal:   .move(edge: editionRemoveEdge).combined(with: .opacity)
+                    ))
 
-            Divider().overlay(faintColor)
+                Divider().overlay(faintColor)
+            }
         }
-        .padding(.top, safeAreaTopPadding)
-        .offset(y: barVisible ? 0 : -barHeight - safeAreaTopPadding)
-        .opacity(barVisible ? 1 : 0)
+        .background(bgColor)
         .animation(.easeInOut(duration: 0.22), value: barVisible)
         .gesture(
             DragGesture(minimumDistance: 30)
@@ -450,12 +445,6 @@ struct JournalView: View {
                     }
                 }
         )
-    }
-
-    private var safeAreaTopPadding: CGFloat {
-        UIApplication.shared.connectedScenes
-            .compactMap { $0 as? UIWindowScene }
-            .first?.windows.first?.safeAreaInsets.top ?? 0
     }
 
     private var barHeight: CGFloat { 89 }
