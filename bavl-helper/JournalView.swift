@@ -285,7 +285,7 @@ struct JournalView: View {
             }
         }
         .safeAreaInset(edge: .top, spacing: 0) {
-            Color.clear.frame(height: barVisible ? 89 : 0)
+            Color.clear.frame(height: barVisible ? safeTop + barHeight : 0)
         }
         .onScrollGeometryChange(for: CGFloat.self,
             of: { $0.contentOffset.y },
@@ -427,7 +427,7 @@ struct JournalView: View {
 
             Divider().overlay(faintColor)
         }
-        .offset(y: barVisible ? 0 : -barHeight)
+        .offset(y: barVisible ? 0 : -(safeTop + barHeight))
         .opacity(barVisible ? 1 : 0)
         .animation(.easeInOut(duration: 0.22), value: barVisible)
         .gesture(
