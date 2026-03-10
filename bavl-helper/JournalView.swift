@@ -275,9 +275,8 @@ struct JournalView: View {
             ArticleReaderView(
                 allArticles: flatArticles,
                 initialIndex: selectedArticleIndex,
-                newspaperName: newspaper.name,
+                newspaper: newspaper,
                 editionDate: vm.currentDate,
-                pressReaderPath: newspaper.pressReaderPath,
                 bearer: bearerToken,
                 onJournal: { selectedArticle = nil }
             )
@@ -678,3 +677,4 @@ private extension String {
         return utf8
     }
 }
+
