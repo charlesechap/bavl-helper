@@ -10,6 +10,16 @@ enum LoginState: Equatable {
     case failure(String)
 }
 
+// Données préchargées pendant l'animation canard
+struct JournalPreloadData {
+    var bearerToken: String = ""
+    var pressReaderPath: String = ""
+    var editions: [PressReaderEdition] = []
+    var tocIds: [Int64] = []
+    var tocIssueId: String = ""
+    var currentDate: String = ""
+}
+
 @MainActor
 class AppViewModel: NSObject, ObservableObject {
     @Published var loginState: LoginState = .idle
@@ -17,9 +27,8 @@ class AppViewModel: NSObject, ObservableObject {
     @Published var statusLog: [String] = []
     @Published var newspapers: [Newspaper] = []
     @Published var authReady: Bool = false
-    // WebViews préchargés pendant l'animation canard (un par journal)
-    // Clé = pressReaderPath, valeur = WKWebView prêt
-    @Published var preloadedWebViews: [String: WKWebView] = [:]
+    // Données préchargées pendant le canard (bearer + TOC + éditions)
+    @Published var preloadedData: [String: JournalPreloadData] = [:]
 
     private var webView: WKWebView?
     private let sessionDateKey = "lastLoginDate"
@@ -32,6 +41,8 @@ class AppViewModel: NSObject, ObservableObject {
     override init() {
         super.init()
         loadNewspapers()
+        // Vérifier la session immédiatement au lancement
+        checkExistingSession()
     }
 
     // MARK: - Credentials
@@ -61,7 +72,6 @@ class AppViewModel: NSObject, ObservableObject {
                 loginState = .loading   // déclenche l'animation canard
                 authReady  = true       // le canard peut finir dès que l'anim est terminée
                 fetchLastEditionDates()
-                preloadPressReaderPages()
                 return
             }
         }
@@ -210,37 +220,16 @@ class AppViewModel: NSObject, ObservableObject {
     }
 
 
-    // MARK: - Préchargement PressReader
-    // Lance un WKWebView caché par journal pendant l'animation canard.
-    // DuckLoadingView laisse ~3s → les pages ont le temps de commencer à charger.
-    func preloadPressReaderPages() {
-        for newspaper in newspapers {
-            guard let url = newspaper.resolvedURL else { continue }
-            guard preloadedWebViews[newspaper.pressReaderPath] == nil else { continue }
-            let config = WKWebViewConfiguration()
-            config.websiteDataStore = .default()
-            let wv = WKWebView(frame: CGRect(x: 0, y: 0, width: 390, height: 844), configuration: config)
-            wv.isHidden = true
-            wv.isUserInteractionEnabled = false
-            if let window = UIApplication.shared.connectedScenes
-                .compactMap({ $0 as? UIWindowScene })
-                .first?.windows.first {
-                window.addSubview(wv)
-            }
-            wv.load(URLRequest(url: url))
-            preloadedWebViews[newspaper.pressReaderPath] = wv
-            print("Préchargement: \(url.absoluteString)")
-        }
+    // MARK: - Préchargement données journal
+    // Appelé par PreloaderView quand le Coordinator a capturé bearer/TOC/éditions.
+    func storePreload(path: String, data: JournalPreloadData) {
+        preloadedData[path] = data
+        print("Préchargement OK: \(path) bearer=\(data.bearerToken.prefix(8))… toc=\(data.tocIds.count) éditions=\(data.editions.count)")
     }
 
-    // Récupère le WKWebView préchargé, le retire du pool et de la window cachée.
-    // Le bridge SwiftUI le réattache comme UIView visible.
-    func consumePreloaded(for path: String) -> WKWebView? {
-        guard let wv = preloadedWebViews.removeValue(forKey: path) else { return nil }
-        // Retirer de la window cachée — SwiftUI va le réattacher dans PressReaderSheet
-        wv.removeFromSuperview()
-        print("Consommé preload: \(path) — isLoading=\(wv.isLoading) url=\(wv.url?.absoluteString ?? "nil")")
-        return wv
+    // Consomme les données préchargées pour un journal (one-shot).
+    func consumePreload(for path: String) -> JournalPreloadData? {
+        preloadedData.removeValue(forKey: path)
     }
 
     // MARK: - Teardown WebView
@@ -350,7 +339,6 @@ extension AppViewModel: WKNavigationDelegate {
                 markSessionStart()
                 teardownWebView()
                 fetchLastEditionDates()
-                preloadPressReaderPages()
 
             } else {
                 print("Page intermédiaire: \(url)")

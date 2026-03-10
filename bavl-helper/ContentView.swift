@@ -1,12 +1,10 @@
 import SwiftUI
 import Combine
-import WebKit
 
 struct ContentView: View {
     @ObservedObject var vm: AppViewModel
     @State private var showSettings    = false
     @State private var selectedPaper:  Newspaper? = nil
-    @State private var selectedPreload: WKWebView? = nil   // capturé au tap
     @State private var showNewspapers  = false
     @State private var walking         = false
     @Environment(\.horizontalSizeClass) private var hSizeClass
@@ -44,6 +42,10 @@ struct ContentView: View {
                                 .padding(.trailing, 20)
                                 .padding(.bottom, 12)
                         }
+                        // Préchargement silencieux pendant l'animation canard
+                        if walking {
+                            PreloaderView(vm: vm)
+                        }
 
                         if walking {
                             WalkLogView(
@@ -74,13 +76,14 @@ struct ContentView: View {
             }
             .sheet(isPresented: $showSettings) { SettingsView(vm: vm) }
             .fullScreenCover(item: $selectedPaper) { paper in
-                PressReaderSheet(newspaper: paper, preloadedWebView: selectedPreload, vm: vm)
+                PressReaderSheet(newspaper: paper, vm: vm)
             }
             .onAppear {
                 showNewspapers = false
                 walking        = false
-                vm.authReady   = false
-                vm.checkExistingSession()
+                // checkExistingSession() est appelé dans AppViewModel.init()
+                // On remet juste authReady à false pour rejouer l'animation si nécessaire
+                if vm.loginState == .idle { vm.authReady = false }
             }
             // Login en cours → animation
             .onChange(of: vm.loginState) { _, state in
@@ -205,7 +208,6 @@ struct ContentView: View {
     @ViewBuilder
     private func newspaperRow(paper: Newspaper, index: Int) -> some View {
         Button {
-            selectedPreload = vm.consumePreloaded(for: paper.pressReaderPath)
             selectedPaper   = paper
         } label: {
             HStack(alignment: .top, spacing: 8) {

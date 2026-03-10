@@ -633,7 +633,6 @@ struct PressReaderWebView: UIViewRepresentable {
 
 struct PressReaderSheet: View {
     let newspaper: Newspaper
-    let preloadedWebView: WKWebView?
     @ObservedObject var vm: AppViewModel
     @Environment(\.dismiss) private var dismiss
 
@@ -656,10 +655,16 @@ struct PressReaderSheet: View {
                             editions = loaded
                         }
                         coord.onBearerReady = { token, path in
-                            journalVM.onBearerReady(token: token, path: path)
+                            // N'écraser que si pas déjà injecté via preload
+                            if journalVM.bearerToken.isEmpty {
+                                journalVM.onBearerReady(token: token, path: path)
+                            }
                         }
                         coord.onTOCLoaded = { ids, issueId in
-                            journalVM.onTOCLoaded(ids: ids, issueId: issueId)
+                            // N'écraser que si le preload n'a pas déjà lancé le fetch
+                            if journalVM.state == .idle || journalVM.sections.isEmpty {
+                                journalVM.onTOCLoaded(ids: ids, issueId: issueId)
+                            }
                         }
                         coord.onArticleReady = { _ in } // unused in zero-webview mode
                     },
@@ -688,6 +693,15 @@ struct PressReaderSheet: View {
             )
         }
         .preferredColorScheme(.dark)
+        .onAppear {
+            // Injecter les données préchargées immédiatement si disponibles
+            if let preload = vm.consumePreload(for: newspaper.pressReaderPath) {
+                journalVM.injectPreload(preload)
+                if !preload.editions.isEmpty {
+                    editions = preload.editions
+                }
+            }
+        }
     }
 }
 

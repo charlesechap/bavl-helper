@@ -74,6 +74,18 @@ class JournalViewModel: ObservableObject {
         pressReaderPath = path
     }
 
+    /// Injection directe des données préchargées — évite d'attendre le WebView
+    func injectPreload(_ data: JournalPreloadData) {
+        print("JOURNAL injectPreload bearer=\(data.bearerToken.prefix(8))… toc=\(data.tocIds.count) éditions=\(data.editions.count)")
+        bearerToken = data.bearerToken
+        pressReaderPath = data.pressReaderPath
+        if !data.currentDate.isEmpty { currentDate = data.currentDate }
+        // Injecter le TOC immédiatement si disponible
+        if !data.tocIds.isEmpty {
+            onTOCLoaded(ids: data.tocIds, issueId: data.tocIssueId)
+        }
+    }
+
     func resetForEditionChange() {
         currentIssueId = ""
         sections = []
