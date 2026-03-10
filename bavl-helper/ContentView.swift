@@ -81,9 +81,8 @@ struct ContentView: View {
             .onAppear {
                 showNewspapers = false
                 walking        = false
-                // checkExistingSession() est appelé dans AppViewModel.init()
-                // On remet juste authReady à false pour rejouer l'animation si nécessaire
-                if vm.loginState == .idle { vm.authReady = false }
+                vm.authReady   = false
+                vm.checkExistingSession()
             }
             // Login en cours → animation
             .onChange(of: vm.loginState) { _, state in

@@ -41,8 +41,6 @@ class AppViewModel: NSObject, ObservableObject {
     override init() {
         super.init()
         loadNewspapers()
-        // Vérifier la session immédiatement au lancement
-        checkExistingSession()
     }
 
     // MARK: - Credentials
