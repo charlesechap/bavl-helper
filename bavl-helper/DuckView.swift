@@ -85,7 +85,7 @@ struct DuckHeaderView: View {
             .onChange(of: walking) { _, isWalking in
                 if isWalking {
                     stopBlink()
-                    let w = max(geo.size.width * 3, 1200)
+                    let w = max(geo.size.width, 400)
                     startWalk(screenWidth: w)
                 } else {
                     started   = false
@@ -95,11 +95,8 @@ struct DuckHeaderView: View {
                     startBlink()
                 }
             }
-            .onChange(of: authReady) { _, ready in
-                if ready && walkDone { onWalkComplete() }
-            }
-            .onChange(of: walkDone) { _, done in
-                if done && authReady { onWalkComplete() }
+            .onChange(of: authReady) { _, _ in
+                // authReady arrivé pendant la marche → le prochain tick() sortira
             }
         }
         .frame(height: 88)
@@ -120,9 +117,8 @@ struct DuckHeaderView: View {
     private func stopBlink() { blinkTimer?.invalidate(); blinkTimer = nil }
 
     // ── Séquence fidèle à duck.py ──────────────────────────────────────────
-    // 1. couché 2.2s
-    // 2. se lève (frameDebout) 1.0s
-    // 3. marche boitante : appui 0.5s + pas1 0.15s + pas2 0.15s, avance 4px/cycle
+    // Durée totale cible : ~4s (2.2s couché + 0.6s lever + marche)
+    // Si authReady arrive pendant la marche → on finit le cycle en cours et on sort
     private func startWalk(screenWidth: CGFloat) {
         guard !started else { return }
         started   = true
@@ -132,27 +128,33 @@ struct DuckHeaderView: View {
 
         // Phase 1 : couché 2.2s
         DispatchQueue.main.asyncAfter(deadline: .now() + 2.2) {
-            // Phase 2 : se lève 1.0s
-            frame = frameDebout
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-                // Phase 3 : marche boitante (rythme asymétrique duck.py)
+            // Phase 2 : se lève 0.6s
+            frame = frameLev
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+                // Phase 3 : marche — cycle 0.8s, step = largeur / nb_cycles_cibles
+                // On vise ~6 cycles visibles (4.8s de marche), step = screenWidth / 6
+                // mais on sort dès qu'authReady est true ET qu'on a fait au moins 1 cycle
+                let cycleTime: Double = 0.8  // 0.5 appui + 0.15 + 0.15
+                let targetWidth = max(screenWidth, 400)
+                let step = targetWidth / 6.0
+                var cyclesDone = 0
+
                 func tick() {
-                    // Appui / hésitation
-                    frame = frameDebout
+                    frame = frameLev
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                        // Pas 1 (rapide)
                         frame = marcheA
-                        withAnimation(.linear(duration: 0.1)) { positionX += 2 }
+                        withAnimation(.linear(duration: 0.12)) { positionX += step * 0.5 }
                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
-                            // Pas 2 (rapide)
                             frame = marcheB
-                            withAnimation(.linear(duration: 0.1)) { positionX += 2 }
+                            withAnimation(.linear(duration: 0.12)) { positionX += step * 0.5 }
                             DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
-                                if positionX < screenWidth {
-                                    tick()
-                                } else {
+                                cyclesDone += 1
+                                // Sortir si : écran traversé OU (authReady et au moins 1 cycle)
+                                if positionX >= targetWidth || (authReady && cyclesDone >= 1) {
                                     walkDone = true
-                                    if authReady { onWalkComplete() }
+                                    onWalkComplete()
+                                } else {
+                                    tick()
                                 }
                             }
                         }
