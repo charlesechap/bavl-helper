@@ -206,26 +206,21 @@ struct JournalView: View {
     private let faintColor = Color(white: 0.20)
 
     var body: some View {
-        GeometryReader { geo in
-            let safeTop = geo.safeAreaInsets.top
-            ZStack(alignment: .top) {
-                bgColor.ignoresSafeArea()
+        ZStack(alignment: .top) {
+            bgColor.ignoresSafeArea()
 
-                // Contenu principal
-                switch vm.state {
-                case .idle:    centeredMessage("Connexion en cours…")
-                case .loading: centeredMessage("Chargement du journal…")
-                case .error(let msg): centeredMessage("Erreur : \(msg)")
-                case .ready:   articleList(safeTop: safeTop)
-                }
-
-
-                // TerminalBar
-                journalBar(safeTop: safeTop)
-
-        
+            // Contenu principal
+            switch vm.state {
+            case .idle:    centeredMessage("Connexion en cours…")
+            case .loading: centeredMessage("Chargement du journal…")
+            case .error(let msg): centeredMessage("Erreur : \(msg)")
+            case .ready:   articleList
             }
+
+            // TerminalBar
+            journalBar
         }
+        .ignoresSafeArea(edges: .top)
         // Sheet article (TabView multi-articles)
         .sheet(item: $selectedArticle) { _ in
             ArticleReaderView(
@@ -268,7 +263,7 @@ struct JournalView: View {
 
     // MARK: - Liste articles
 
-    private func articleList(safeTop: CGFloat) -> some View {
+    private var articleList: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 0, pinnedViews: .sectionHeaders) {
                 ForEach(vm.sections) { section in
@@ -285,7 +280,7 @@ struct JournalView: View {
             }
         }
         .safeAreaInset(edge: .top, spacing: 0) {
-            Color.clear.frame(height: barVisible ? safeTop + barHeight : 0)
+            Color.clear.frame(height: barVisible ? barHeight : 0)
         }
         .onScrollGeometryChange(for: CGFloat.self,
             of: { $0.contentOffset.y },
@@ -293,7 +288,7 @@ struct JournalView: View {
                 let delta = new - lastScrollY
                 lastScrollY = new
                 if new <= 0 {
-                    barVisible = true
+                    withAnimation(.easeInOut(duration: 0.22)) { barVisible = true }
                 } else if delta > 6 {
                     withAnimation(.easeInOut(duration: 0.22)) { barVisible = false }
                 } else if delta < -6 {
@@ -398,10 +393,14 @@ struct JournalView: View {
         }
     }
 
-    // MARK: - TerminalBar
-
-    private func journalBar(safeTop: CGFloat) -> some View {
+    private var journalBar: some View {
         VStack(spacing: 0) {
+            // Remplissage de la safe area (notch / Dynamic Island)
+            Color.clear
+                .frame(maxWidth: .infinity)
+                .frame(height: 0)   // SwiftUI gère via ignoresSafeArea du parent
+                .background(bgColor)
+
             Text(newspaper.name)
                 .font(.system(.callout, design: .monospaced))
                 .foregroundStyle(Color(white: 0.82))
@@ -419,7 +418,7 @@ struct JournalView: View {
                 .frame(maxWidth: .infinity)
                 .frame(height: 44)
                 .background(bgColor)
-                .id(vm.currentDate)          // force transition à chaque changement
+                .id(vm.currentDate)
                 .transition(.asymmetric(
                     insertion: .move(edge: editionInsertEdge).combined(with: .opacity),
                     removal:   .move(edge: editionRemoveEdge).combined(with: .opacity)
@@ -427,7 +426,8 @@ struct JournalView: View {
 
             Divider().overlay(faintColor)
         }
-        .offset(y: barVisible ? 0 : -(safeTop + barHeight))
+        .padding(.top, safeAreaTopPadding)
+        .offset(y: barVisible ? 0 : -barHeight - safeAreaTopPadding)
         .opacity(barVisible ? 1 : 0)
         .animation(.easeInOut(duration: 0.22), value: barVisible)
         .gesture(
@@ -437,12 +437,10 @@ struct JournalView: View {
                     if isHoriz {
                         guard let idx = editions.firstIndex(where: { $0.date == vm.currentDate }) else { return }
                         if v.translation.width < -30 && idx > 0 {
-                            // swipe gauche = plus récente
                             editionInsertEdge = .trailing
                             editionRemoveEdge = .leading
                             withAnimation(.easeInOut(duration: 0.22)) { onEditionSelect(editions[idx - 1]) }
                         } else if v.translation.width > 30 && idx + 1 < editions.count {
-                            // swipe droite = plus ancienne
                             editionInsertEdge = .leading
                             editionRemoveEdge = .trailing
                             withAnimation(.easeInOut(duration: 0.22)) { onEditionSelect(editions[idx + 1]) }
@@ -452,6 +450,12 @@ struct JournalView: View {
                     }
                 }
         )
+    }
+
+    private var safeAreaTopPadding: CGFloat {
+        UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .first?.windows.first?.safeAreaInsets.top ?? 0
     }
 
     private var barHeight: CGFloat { 89 }
