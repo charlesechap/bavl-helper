@@ -22,7 +22,6 @@ struct ArticleParagraph: Identifiable {
         case subheading
         case caption
         case image
-        case quote   // ← blockquote mise en avant
     }
 }
 
@@ -39,14 +38,13 @@ struct ArticleContent: Identifiable {
         guard let id = json["id"] as? Int64 ?? (json["id"] as? Int).map(Int64.init),
               let titleRaw = json["title"] as? String
         else { return nil }
-        let title      = titleRaw.fixedEncoding
-        let subtitle   = (json["subtitle"] as? String)?.fixedEncoding
-        let author     = (json["author"] as? String)?.fixedEncoding
+        let title = titleRaw.fixedEncoding
+        let subtitle    = (json["subtitle"] as? String)?.fixedEncoding
+        let author      = (json["author"]   as? String)?.fixedEncoding
         let sectionName = ((json["issue"] as? [String: Any])?["sectionName"] as? String)?.fixedEncoding
-        let dateStr    = (json["issue"] as? [String: Any])?["date"] as? String ?? ""
+        let dateStr     = (json["issue"] as? [String: Any])?["date"] as? String ?? ""
 
         var paragraphs: [ArticleParagraph] = []
-
         if let rawParagraphs = json["paragraphs"] as? [[String: Any]] {
             for p in rawParagraphs {
                 let pType = p["type"] as? String ?? "text"
@@ -87,7 +85,8 @@ struct ArticleContent: Identifiable {
                 let nativeH = (sizeDict?["height"] as? Int) ?? (sizeDict?["height"] as? Double).map { Int($0) } ?? 0
                 guard nativeW >= 100 && nativeH >= 100 else { continue }
                 let targetW = nativeW > 0 ? min(nativeW, 1170) : 1170
-                guard let imgURL = URL(string: "https://i.prcdn.co/img?regionKey=\(encoded)&width=\(targetW)") else { continue }
+                guard let imgURL = URL(string: "https://i.prcdn.co/img?regionKey=\(encoded)&width=\(targetW)")
+                else { continue }
                 let caption = (img["caption"] as? String)?.fixedEncoding ?? ""
                 let sz = CGSize(width: CGFloat(nativeW), height: CGFloat(nativeH))
                 imageParagraphs.append(ArticleParagraph(text: caption, style: .image, imageURL: imgURL, nativeSize: sz))
@@ -105,7 +104,7 @@ struct ArticleContent: Identifiable {
     }
 }
 
-// MARK: - Cache articles partagé
+// MARK: - Cache articles
 
 final class ArticleCache {
     nonisolated(unsafe) private var cache: [Int64: ArticleContent] = [:]
@@ -150,10 +149,13 @@ final class ArticleCache {
 struct ArticleReaderView: View {
     let allArticles: [ArticleMeta]
     let initialIndex: Int
-    let newspaper: Newspaper
+    let newspaperName: String
     let editionDate: String
+    let pressReaderPath: String
     let bearer: String
     let onJournal: () -> Void
+
+    @AppStorage("readingTheme") private var themeKey: String = "night"
 
     @State private var currentIndex: Int
     @State private var showShare = false
@@ -162,15 +164,16 @@ struct ArticleReaderView: View {
     @State private var barVisible = true
     @State private var lastScrollY: CGFloat = 0
 
-    // Thème : same as JournalView (night par défaut)
-    private let theme = NewsTheme.night
+    private var theme: ReadingTheme { themeKey == "day" ? .day : .night }
+    private var colorScheme: ColorScheme { themeKey == "day" ? .light : .dark }
 
-    init(allArticles: [ArticleMeta], initialIndex: Int, newspaper: Newspaper,
-         editionDate: String, bearer: String, onJournal: @escaping () -> Void) {
+    init(allArticles: [ArticleMeta], initialIndex: Int, newspaperName: String,
+         editionDate: String, pressReaderPath: String, bearer: String, onJournal: @escaping () -> Void) {
         self.allArticles = allArticles
         self.initialIndex = initialIndex
-        self.newspaper = newspaper
+        self.newspaperName = newspaperName
         self.editionDate = editionDate
+        self.pressReaderPath = pressReaderPath
         self.bearer = bearer
         self.onJournal = onJournal
         self._currentIndex = State(initialValue: initialIndex)
@@ -183,7 +186,7 @@ struct ArticleReaderView: View {
         }
         .safeAreaInset(edge: .top, spacing: 0) {
             NavBar(
-                title: newspaper.name,
+                title: newspaperName,
                 subtitle: barDateLabel,
                 visible: barVisible
             )
@@ -191,9 +194,8 @@ struct ArticleReaderView: View {
         .sheet(isPresented: $showShare) {
             ShareSheet(items: [shareText])
         }
+        .preferredColorScheme(colorScheme)
     }
-
-    // MARK: - TabView articles
 
     private var articleTabView: some View {
         TabView(selection: $currentIndex) {
@@ -204,9 +206,9 @@ struct ArticleReaderView: View {
                     nextMeta: idx + 1 < allArticles.count ? allArticles[idx + 1] : nil,
                     cache: cache,
                     bearer: bearer,
-                    newspaper: newspaper,
-                    isActive: idx == currentIndex,
+                    pressReaderPath: pressReaderPath,
                     theme: theme,
+                    isActive: idx == currentIndex,
                     onPrevArticle: { currentIndex = max(0, idx - 1) },
                     onNextArticle: { currentIndex = idx + 1 },
                     onJournal: onJournal,
@@ -254,9 +256,9 @@ private struct ArticlePageView: View {
     let nextMeta: ArticleMeta?
     let cache: ArticleCache
     let bearer: String
-    let newspaper: Newspaper
+    let pressReaderPath: String
+    let theme: ReadingTheme
     let isActive: Bool
-    let theme: NewsTheme
     let onPrevArticle: () -> Void
     let onNextArticle: () -> Void
     let onJournal: () -> Void
@@ -276,7 +278,7 @@ private struct ArticlePageView: View {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 0) {
                         articleHeader(art)
-                        articleBody(art)
+                        bodyContent(art)
                         articleFooter(art)
                     }
                 }
@@ -295,11 +297,12 @@ private struct ArticlePageView: View {
                         }
                     }
                 )
-
             } else if loading {
                 VStack {
                     Spacer()
-                    ProgressView().tint(theme.textDim).scaleEffect(0.9)
+                    ProgressView()
+                        .progressViewStyle(.circular)
+                        .tint(theme.textTertiary)
                     Spacer()
                 }
                 .frame(maxWidth: .infinity)
@@ -307,7 +310,21 @@ private struct ArticlePageView: View {
         }
         .onAppear { loadFromCacheOrFetch() }
         .onChange(of: isActive) { _, active in
-            if active { scrollResetID = UUID(); loadFromCacheOrFetch() }
+            if active {
+                scrollResetID = UUID()
+                loadFromCacheOrFetch()
+            }
+        }
+    }
+
+    private func loadFromCacheOrFetch() {
+        if let cached = cache.get(meta.id) {
+            article = cached; loading = false
+        } else {
+            loading = true
+            cache.fetch(id: meta.id, bearer: bearer) { art in
+                article = art; loading = false
+            }
         }
     }
 
@@ -315,219 +332,161 @@ private struct ArticlePageView: View {
 
     private func articleHeader(_ art: ArticleContent) -> some View {
         VStack(alignment: .leading, spacing: 0) {
-            // Image hero — pleine largeur, pas de marges
-            if let heroImage = art.paragraphs.first(where: { $0.style == .image }),
-               let url = heroImage.imageURL {
-                heroImageView(url: url, nativeSize: heroImage.nativeSize)
-                    .padding(.bottom, 20)
+            // Rubrique colorée
+            if let section = art.sectionName, !section.isEmpty {
+                let accentColor = sectionAccentColor(for: section, theme: theme)
+                HStack(spacing: 6) {
+                    Rectangle()
+                        .fill(accentColor)
+                        .frame(width: 3, height: 13)
+                        .cornerRadius(1.5)
+                    Text(section.uppercased())
+                        .font(.system(size: 10, weight: .semibold, design: .rounded))
+                        .foregroundStyle(accentColor)
+                        .tracking(1.4)
+                }
+                .padding(.bottom, 14)
             }
 
-            VStack(alignment: .leading, spacing: 0) {
-                // Rubrique avec trait coloré
-                if let sec = art.sectionName, !sec.isEmpty {
-                    HStack(spacing: 8) {
-                        Rectangle()
-                            .fill(theme.sectionAccent(for: sec))
-                            .frame(width: 3, height: 14)
-                        Text(sec.uppercased())
-                            .font(.system(size: 11, weight: .semibold, design: .default))
-                            .tracking(1.2)
-                            .foregroundStyle(theme.sectionAccent(for: sec))
-                    }
-                    .padding(.bottom, 12)
-                }
+            // Titre principal — SF Pro bold, grande taille
+            Text(art.title)
+                .font(.system(size: 26, weight: .bold, design: .default))
+                .foregroundStyle(theme.textPrimary)
+                .fixedSize(horizontal: false, vertical: true)
+                .lineLimit(nil)
+                .padding(.bottom, 10)
 
-                // Titre — New York Bold, grand
-                Text(art.title)
-                    .font(.system(size: 28, weight: .bold, design: .serif))
-                    .foregroundStyle(theme.textPrimary)
+            // Chapeau — New York italic
+            if let sub = art.subtitle, !sub.isEmpty {
+                Text(sub)
+                    .font(.system(size: 17, design: .serif).italic())
+                    .foregroundStyle(theme.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
                     .lineSpacing(3)
-                    .padding(.bottom, art.subtitle != nil ? 12 : 16)
+                    .padding(.bottom, 14)
+            }
 
-                // Chapeau — New York Italic
-                if let sub = art.subtitle, !sub.isEmpty {
-                    Text(sub)
-                        .font(.system(size: 17, weight: .regular, design: .serif).italic())
+            // Meta ligne (auteur + date)
+            HStack(spacing: 6) {
+                if let auth = art.author, !auth.isEmpty {
+                    Text(auth)
+                        .font(.system(size: 12, weight: .medium))
                         .foregroundStyle(theme.textSecondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .lineSpacing(4)
-                        .padding(.bottom, 14)
                 }
+                if let auth = art.author, !auth.isEmpty,
+                   !art.date.isEmpty, displayDate(art.date) != nil {
+                    Text("·")
+                        .font(.system(size: 12))
+                        .foregroundStyle(theme.textTertiary)
+                }
+                if !art.date.isEmpty, let d = displayDate(art.date) {
+                    Text(d)
+                        .font(.system(size: 12))
+                        .foregroundStyle(theme.textTertiary)
+                }
+            }
+            .padding(.bottom, 20)
 
-                // Auteur + date
-                HStack(spacing: 6) {
-                    if let auth = art.author, !auth.isEmpty {
-                        Text(auth.uppercased())
-                            .font(.system(size: 10, weight: .regular, design: .default))
-                            .tracking(0.6)
-                            .foregroundStyle(theme.textTertiary)
-                    }
-                    if !art.date.isEmpty, let d = displayDate(art.date) {
-                        Text("·").foregroundStyle(theme.textDim)
-                        Text(d)
-                            .font(.system(size: 10, weight: .regular, design: .default))
-                            .foregroundStyle(theme.textDim)
-                    }
-                }
+            // Ligne de séparation
+            Rectangle()
+                .fill(theme.divider)
+                .frame(height: 1)
                 .padding(.bottom, 20)
-
-                // Trait de séparation
-                Rectangle()
-                    .fill(theme.divider)
-                    .frame(height: 0.5)
-                    .padding(.bottom, 22)
-            }
-            .padding(.horizontal, 20)
         }
-    }
-
-    // MARK: - Image hero pleine largeur
-
-    private func heroImageView(url: URL, nativeSize: CGSize) -> some View {
-        GeometryReader { geo in
-            let w = geo.size.width
-            let ratio: CGFloat = nativeSize.width > 0 ? nativeSize.height / nativeSize.width : (9.0/16.0)
-            let h = min(w * ratio, w * 0.75) // max 75% de la largeur
-            AsyncImage(url: url) { img in
-                img.resizable().aspectRatio(contentMode: .fill)
-                    .frame(width: w, height: h).clipped()
-            } placeholder: {
-                theme.imagePlaceholder.frame(width: w, height: h)
-            }
-        }
-        .frame(height: {
-            let w = UIScreen.main.bounds.width
-            let ratio: CGFloat = nativeSize.width > 0 ? nativeSize.height / nativeSize.width : (9.0/16.0)
-            return min(w * ratio, w * 0.75)
-        }())
+        .padding(.top, 24)
+        .padding(.horizontal, 20)
     }
 
     // MARK: - Corps de l'article
 
-    private func articleBody(_ art: ArticleContent) -> some View {
-        let bodyParagraphs = art.paragraphs.filter { para in
-            // Exclure la première image (déjà affichée en hero)
-            if para.style == .image {
-                return para.id != art.paragraphs.first(where: { $0.style == .image })?.id
-            }
-            return true
-        }
-
-        return LazyVStack(alignment: .leading, spacing: 0) {
-            ForEach(bodyParagraphs) { para in
-                paragraphView(para)
-                    .padding(.bottom, paragraphSpacing(para))
-            }
+    @ViewBuilder
+    private func bodyContent(_ art: ArticleContent) -> some View {
+        ForEach(art.paragraphs) { para in
+            paragraphView(para)
         }
     }
-
-    // MARK: - Paragraphes
 
     @ViewBuilder
     private func paragraphView(_ para: ArticleParagraph) -> some View {
         switch para.style {
 
-        // ── Inter-titre (h2)
         case .heading:
             Text(para.text)
-                .font(.system(size: 19, weight: .bold, design: .serif))
+                .font(.system(size: 18, weight: .bold, design: .default))
                 .foregroundStyle(theme.textPrimary)
                 .fixedSize(horizontal: false, vertical: true)
-                .lineSpacing(3)
                 .textSelection(.enabled)
                 .padding(.horizontal, 20)
-                .padding(.top, 10)
+                .padding(.top, 22)
+                .padding(.bottom, 6)
 
-        // ── Sous-titre (h3)
         case .subheading:
             Text(para.text)
                 .font(.system(size: 15, weight: .semibold, design: .serif))
                 .foregroundStyle(theme.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
-                .lineSpacing(2)
                 .padding(.horizontal, 20)
-                .padding(.top, 4)
+                .padding(.top, 12)
+                .padding(.bottom, 4)
 
-        // ── Corps — New York, interligne 1.5
-        case .body:
-            Text(para.text)
-                .font(.system(size: 17, weight: .regular, design: .serif))
-                .foregroundStyle(theme.textPrimary)
-                .lineSpacing(6)   // ≈ 1.47 avec 17pt (17 * 1.47 ≈ 25, linespacing additionnel = 8)
-                .fixedSize(horizontal: false, vertical: true)
-                .textSelection(.enabled)
-                .padding(.horizontal, 20)
-
-        // ── Blockquote / citation mise en avant
-        case .quote:
-            HStack(spacing: 0) {
-                Rectangle()
-                    .fill(theme.accent)
-                    .frame(width: 3)
-                Text(para.text)
-                    .font(.system(size: 19, weight: .bold, design: .serif).italic())
-                    .foregroundStyle(theme.textPrimary)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .lineSpacing(4)
-                    .padding(.leading, 16)
-                    .padding(.trailing, 20)
-            }
-            .padding(.leading, 20)
-            .padding(.vertical, 6)
-
-        // ── Légende image
         case .caption:
             Text(para.text)
-                .font(.system(size: 12, weight: .regular, design: .default).italic())
+                .font(.system(size: 12, design: .serif).italic())
                 .foregroundStyle(theme.textTertiary)
                 .fixedSize(horizontal: false, vertical: true)
-                .lineSpacing(2)
                 .padding(.horizontal, 20)
+                .padding(.vertical, 4)
 
-        // ── Image inline (pas la hero)
         case .image:
             VStack(alignment: .leading, spacing: 0) {
                 if let url = para.imageURL {
                     GeometryReader { geo in
                         let w = geo.size.width
                         let r: CGFloat = para.nativeSize.width > 0
-                            ? para.nativeSize.height / para.nativeSize.width : 0.67
-                        let h = min(w * r, w * 0.80)
+                            ? para.nativeSize.height / para.nativeSize.width : 0.65
                         AsyncImage(url: url) { img in
-                            img.resizable().aspectRatio(contentMode: .fill)
-                                .frame(width: w, height: h).clipped()
+                            img.resizable()
+                                .aspectRatio(contentMode: .fill)
+                                .frame(width: w, height: w * r)
+                                .clipped()
                         } placeholder: {
-                            theme.imagePlaceholder.frame(width: w, height: h)
+                            theme.surfaceAlt
+                                .frame(width: w, height: w * r)
+                                .overlay(
+                                    ProgressView()
+                                        .tint(theme.textTertiary)
+                                        .scaleEffect(0.7)
+                                )
                         }
                     }
                     .frame(height: {
                         let w = UIScreen.main.bounds.width
                         let r: CGFloat = para.nativeSize.width > 0
-                            ? para.nativeSize.height / para.nativeSize.width : 0.67
-                        return min(w * r, w * 0.80)
+                            ? para.nativeSize.height / para.nativeSize.width : 0.65
+                        return w * r
                     }())
                 }
                 if !para.text.isEmpty {
                     Text(para.text)
-                        .font(.system(size: 11, weight: .regular, design: .default).italic())
+                        .font(.system(size: 11, design: .serif).italic())
                         .foregroundStyle(theme.textTertiary)
                         .padding(.horizontal, 20)
-                        .padding(.top, 8)
+                        .padding(.top, 7)
+                        .padding(.bottom, 4)
                 }
             }
-            .padding(.bottom, 4)
-        }
-    }
+            .padding(.vertical, 16)
 
-    private func paragraphSpacing(_ para: ArticleParagraph) -> CGFloat {
-        switch para.style {
-        case .heading:   return 4
-        case .subheading: return 6
-        case .body:      return 18
-        case .quote:     return 20
-        case .caption:   return 14
-        case .image:     return 20
+        case .body:
+            Text(para.text)
+                // New York serif — police de lecture longue par excellence
+                .font(.system(size: 17, design: .serif))
+                .foregroundStyle(theme.textPrimary)
+                .lineSpacing(6)          // interligne ~1.5 à 17pt
+                .fixedSize(horizontal: false, vertical: true)
+                .textSelection(.enabled)
+                .padding(.horizontal, 20)
+                .padding(.bottom, 18)    // espacement entre paragraphes
         }
     }
 
@@ -535,34 +494,28 @@ private struct ArticlePageView: View {
         guard s.count == 8 else { return nil }
         let f = DateFormatter(); f.dateFormat = "yyyyMMdd"
         guard let d = f.date(from: s) else { return nil }
-        f.dateStyle = .medium; f.timeStyle = .none
-        f.locale = Locale(identifier: "fr_CH")
+        f.dateStyle = .medium; f.timeStyle = .none; f.locale = Locale(identifier: "fr_CH")
         return f.string(from: d)
     }
 
-    // MARK: - Footer
+    // MARK: - Footer article
 
+    @ViewBuilder
     private func articleFooter(_ art: ArticleContent) -> some View {
         VStack(spacing: 0) {
-            Rectangle().fill(theme.divider).frame(height: 0.5)
-                .padding(.top, 10)
 
             // Article suivant
             if let next = nextMeta {
+                Rectangle().fill(theme.divider).frame(height: 1)
                 adjacentArticleRow(meta: next, label: "article suivant", action: onNextArticle)
-                Rectangle().fill(theme.divider).frame(height: 0.5)
             }
 
             // Barre d'actions
+            Rectangle().fill(theme.divider).frame(height: 1)
             HStack(spacing: 0) {
+                footerButton(icon: "list.bullet", label: "journal", action: onJournal)
                 footerButton(icon: "square.and.arrow.up", label: "partager") {
                     onShare(buildShareText(art))
-                }
-                footerButton(icon: "arrow.clockwise", label: "recharger") {
-                    article = nil; loading = true
-                    cache.fetch(id: meta.id, bearer: bearer) { fetched in
-                        article = fetched; loading = false; scrollResetID = UUID()
-                    }
                 }
                 if let url = articleURL(art) {
                     footerButton(icon: "safari", label: "safari") {
@@ -574,12 +527,12 @@ private struct ArticlePageView: View {
             .padding(.horizontal, 8)
             .background(theme.surface)
 
-            Color.clear.frame(height: 32)
+            // Espace safe area bas
+            Color.clear.frame(height: 20)
         }
-        .background(theme.surface)
+        .padding(.top, 8)
     }
 
-    @ViewBuilder
     private func footerButton(icon: String, label: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             VStack(spacing: 4) {
@@ -587,50 +540,49 @@ private struct ArticlePageView: View {
                     .font(.system(size: 17))
                     .foregroundStyle(theme.textSecondary)
                 Text(label)
-                    .font(.system(size: 9, design: .default))
-                    .foregroundStyle(theme.textDim)
+                    .font(.system(size: 9, design: .rounded))
+                    .foregroundStyle(theme.textTertiary)
             }
             .frame(maxWidth: .infinity)
         }
         .buttonStyle(.plain)
     }
 
-    @ViewBuilder
     private func adjacentArticleRow(meta: ArticleMeta, label: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             HStack(alignment: .top, spacing: 14) {
                 VStack(alignment: .leading, spacing: 5) {
                     Text(label.uppercased())
-                        .font(.system(size: 10, weight: .regular, design: .default))
-                        .tracking(0.8)
-                        .foregroundStyle(theme.textDim)
+                        .font(.system(size: 9, weight: .semibold, design: .rounded))
+                        .foregroundStyle(theme.textTertiary)
+                        .tracking(1.2)
                     Text(meta.title)
-                        .font(.system(size: 15, weight: .semibold, design: .serif))
+                        .font(.system(.callout, design: .serif).weight(.medium))
                         .foregroundStyle(theme.textPrimary)
                         .fixedSize(horizontal: false, vertical: true)
-                        .lineSpacing(2)
+                        .lineLimit(2)
                     if let sub = meta.subtitle, !sub.isEmpty {
                         Text(sub)
-                            .font(.system(size: 13, weight: .regular, design: .serif).italic())
+                            .font(.system(.footnote, design: .serif))
                             .foregroundStyle(theme.textSecondary)
                             .lineLimit(2)
                     }
                     if let auth = meta.author, !auth.isEmpty {
-                        Text(auth.uppercased())
-                            .font(.system(size: 10, weight: .regular))
-                            .tracking(0.5)
+                        Text(auth)
+                            .font(.system(size: 11))
                             .foregroundStyle(theme.textTertiary)
                             .padding(.top, 2)
                     }
                 }
                 Spacer(minLength: 8)
                 Image(systemName: "chevron.right")
-                    .font(.system(size: 12))
-                    .foregroundStyle(theme.textDim)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(theme.textTertiary)
                     .padding(.top, 3)
             }
             .padding(.horizontal, 20)
             .padding(.vertical, 16)
+            .background(theme.surface)
         }
         .buttonStyle(.plain)
     }
@@ -646,7 +598,7 @@ private struct ArticlePageView: View {
         parts.append("")
         for para in art.paragraphs {
             switch para.style {
-            case .body:    parts.append(para.text)
+            case .body: parts.append(para.text)
             case .heading: parts.append("\n" + para.text)
             default: break
             }
@@ -655,19 +607,8 @@ private struct ArticlePageView: View {
     }
 
     private func articleURL(_ art: ArticleContent) -> URL? {
-        let path = newspaper.pressReaderPath.isEmpty ? "publication" : newspaper.pressReaderPath
+        let path = pressReaderPath.isEmpty ? "publication" : pressReaderPath
         return URL(string: "https://www.pressreader.com/\(path)/\(art.date)/\(art.id)/textview")
-    }
-
-    private func loadFromCacheOrFetch() {
-        if let cached = cache.get(meta.id) {
-            article = cached; loading = false
-        } else {
-            loading = true
-            cache.fetch(id: meta.id, bearer: bearer) { art in
-                article = art; loading = false
-            }
-        }
     }
 }
 
