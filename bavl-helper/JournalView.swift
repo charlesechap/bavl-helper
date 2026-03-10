@@ -1,6 +1,47 @@
 import SwiftUI
 import Combine
 
+// MARK: - Theme
+
+struct ReadingTheme {
+    // Backgrounds
+    let background:   Color
+    let surface:      Color
+    let surfaceAlt:   Color
+    // Text
+    let textPrimary:   Color
+    let textSecondary: Color
+    let textTertiary:  Color
+    // Accent & UI
+    let accent:        Color
+    let divider:       Color
+    let sectionBg:     Color
+
+    static let day = ReadingTheme(
+        background:    Color(red: 0.97, green: 0.96, blue: 0.93),
+        surface:       Color(red: 0.93, green: 0.92, blue: 0.89),
+        surfaceAlt:    Color(red: 0.90, green: 0.89, blue: 0.86),
+        textPrimary:   Color(red: 0.11, green: 0.10, blue: 0.09),
+        textSecondary: Color(red: 0.35, green: 0.33, blue: 0.30),
+        textTertiary:  Color(red: 0.55, green: 0.52, blue: 0.48),
+        accent:        Color(red: 0.72, green: 0.08, blue: 0.08),
+        divider:       Color(red: 0.78, green: 0.76, blue: 0.72),
+        sectionBg:     Color(red: 0.95, green: 0.94, blue: 0.91)
+    )
+
+    static let night = ReadingTheme(
+        background:    Color(red: 0.10, green: 0.10, blue: 0.11),
+        surface:       Color(red: 0.14, green: 0.14, blue: 0.15),
+        surfaceAlt:    Color(red: 0.18, green: 0.18, blue: 0.19),
+        textPrimary:   Color(red: 0.90, green: 0.89, blue: 0.87),
+        textSecondary: Color(red: 0.60, green: 0.59, blue: 0.57),
+        textTertiary:  Color(red: 0.38, green: 0.37, blue: 0.36),
+        accent:        Color(red: 0.92, green: 0.36, blue: 0.36),
+        divider:       Color(red: 0.22, green: 0.22, blue: 0.23),
+        sectionBg:     Color(red: 0.12, green: 0.12, blue: 0.13)
+    )
+}
+
 // MARK: - Modèles article léger (metadata)
 
 struct ArticleMeta: Identifiable {
@@ -24,11 +65,11 @@ struct ArticleMeta: Identifiable {
         else { return nil }
         let title = titleRaw.fixedEncoding
 
-        let subtitle = (json["subtitle"] as? String)?.fixedEncoding
-        let author = (json["author"] as? String)?.fixedEncoding
+        let subtitle    = (json["subtitle"]    as? String)?.fixedEncoding
+        let author      = (json["author"]      as? String)?.fixedEncoding
         let shortContent = (json["shortContent"] as? String)?.fixedEncoding
         let sectionName = ((json["issue"] as? [String: Any])?["sectionName"] as? String)?.fixedEncoding
-        let pageNumber = ((json["issue"] as? [String: Any])?["page"] as? [String: Any])?["number"] as? Int
+        let pageNumber  = ((json["issue"] as? [String: Any])?["page"] as? [String: Any])?["number"] as? Int
 
         let thumbURL: URL?
         if let imgs = json["images"] as? [[String: Any]],
@@ -50,8 +91,28 @@ struct ArticleMeta: Identifiable {
 }
 
 struct JournalSection: Identifiable {
-    let id: String   // sectionName ou "—"
+    let id: String
     var articles: [ArticleMeta]
+}
+
+// MARK: - Couleur par rubrique
+
+private func sectionAccentColor(for name: String, theme: ReadingTheme) -> Color {
+    let lower = name.lowercased()
+    if lower.contains("une") || lower.contains("actu") || lower.contains("nation") {
+        return theme.accent
+    } else if lower.contains("intern") || lower.contains("monde") {
+        return Color(red: 0.15, green: 0.35, blue: 0.65)
+    } else if lower.contains("éco") || lower.contains("eco") || lower.contains("finan") {
+        return Color(red: 0.12, green: 0.48, blue: 0.28)
+    } else if lower.contains("cult") || lower.contains("art") || lower.contains("livr") {
+        return Color(red: 0.45, green: 0.20, blue: 0.60)
+    } else if lower.contains("sport") {
+        return Color(red: 0.82, green: 0.38, blue: 0.08)
+    } else if lower.contains("sci") || lower.contains("tech") {
+        return Color(red: 0.08, green: 0.42, blue: 0.60)
+    }
+    return theme.textTertiary
 }
 
 // MARK: - JournalViewModel
@@ -69,18 +130,14 @@ class JournalViewModel: ObservableObject {
     private var pressReaderPath: String = ""
 
     func onBearerReady(token: String, path: String) {
-        print("JOURNAL onBearerReady token.count=\(token.count)")
         bearerToken = token
         pressReaderPath = path
     }
 
-    /// Injection directe des données préchargées — évite d'attendre le WebView
     func injectPreload(_ data: JournalPreloadData) {
-        print("JOURNAL injectPreload bearer=\(data.bearerToken.prefix(8))… toc=\(data.tocIds.count) éditions=\(data.editions.count)")
         bearerToken = data.bearerToken
         pressReaderPath = data.pressReaderPath
         if !data.currentDate.isEmpty { currentDate = data.currentDate }
-        // Injecter le TOC immédiatement si disponible
         if !data.tocIds.isEmpty {
             onTOCLoaded(ids: data.tocIds, issueId: data.tocIssueId)
         }
@@ -93,12 +150,8 @@ class JournalViewModel: ObservableObject {
     }
 
     func onTOCLoaded(ids: [Int64], issueId: String) {
-        print("JOURNAL onTOCLoaded ids=\(ids.count) token.count=\(bearerToken.count)")
         guard !ids.isEmpty else { return }
-        guard issueId != currentIssueId || state == LoadState.idle else {
-            print("JOURNAL onTOCLoaded skipped: same issueId=\(issueId)")
-            return
-        }
+        guard issueId != currentIssueId || state == LoadState.idle else { return }
         currentIssueId = issueId
         sections = []
         state = .loading
@@ -113,7 +166,6 @@ class JournalViewModel: ObservableObject {
         var allMeta: [ArticleMeta] = []
         let group = DispatchGroup()
 
-        print("JOURNAL fetchMetadata batches=\(batches.count) token.isEmpty=\(bearerToken.isEmpty)")
         for batch in batches {
             group.enter()
             let idsStr = batch.map { String($0) }.joined(separator: "%2C")
@@ -126,9 +178,7 @@ class JournalViewModel: ObservableObject {
 
             URLSession.shared.dataTask(with: req) { data, resp, _ in
                 defer { group.leave() }
-                let status = (resp as? HTTPURLResponse)?.statusCode ?? 0
-                guard let data else { print("JOURNAL meta no data"); return }
-                print("JOURNAL meta status=\(status) len=\(data.count)")
+                guard let data else { return }
                 var items: [[String: Any]] = []
                 if let obj = try? JSONSerialization.jsonObject(with: data) {
                     if let dict = obj as? [String: Any] {
@@ -139,7 +189,6 @@ class JournalViewModel: ObservableObject {
                     }
                 }
                 let parsed = items.compactMap { ArticleMeta.parse(from: $0) }
-                print("JOURNAL meta items=\(items.count) parsed=\(parsed.count) thumbs=\(parsed.filter{$0.thumbnailURL != nil}.count)")
                 DispatchQueue.main.async { allMeta.append(contentsOf: parsed) }
             }.resume()
         }
@@ -148,7 +197,6 @@ class JournalViewModel: ObservableObject {
             guard let self else { return }
             var seen = Set<Int64>()
             let unique = allMeta.filter { seen.insert($0.id).inserted }
-            print("JOURNAL ready: \(unique.count) articles")
             let sorted = unique.sorted { ($0.pageNumber ?? 999) < ($1.pageNumber ?? 999) }
             self.sections = self.groupBySections(sorted)
             self.state = .ready
@@ -196,6 +244,8 @@ struct JournalView: View {
     let onDismiss: () -> Void
     let onEditionSelect: (PressReaderEdition) -> Void
 
+    @AppStorage("readingTheme") private var themeKey: String = "night"
+
     @State private var currentEditionIndex: Int = 0
     @State private var selectedArticle: ArticleContent? = nil
     @State private var selectedArticleIndex: Int = 0
@@ -206,16 +256,12 @@ struct JournalView: View {
     @State private var previewArticle: ArticleContent? = nil
     @State private var loadingPreviewId: Int64? = nil
 
-    private let bgColor  = Color(red: 0.13, green: 0.13, blue: 0.13)
-    private let activeColor = Color(white: 0.82)
-    private let dimColor    = Color(white: 0.35)
-    private let faintColor  = Color(white: 0.20)
-
-    // MARK: body
+    private var theme: ReadingTheme { themeKey == "day" ? .day : .night }
+    private var colorScheme: ColorScheme { themeKey == "day" ? .light : .dark }
 
     var body: some View {
         ZStack {
-            bgColor.ignoresSafeArea()
+            theme.background.ignoresSafeArea()
             editionTabView
         }
         .safeAreaInset(edge: .top, spacing: 0) {
@@ -241,6 +287,7 @@ struct JournalView: View {
             ArticlePreviewSheet(
                 meta: meta,
                 article: previewArticle,
+                theme: theme,
                 onRead: {
                     if let art = previewArticle {
                         let idx = flatArticles.firstIndex(where: { $0.id == meta.id }) ?? 0
@@ -252,10 +299,9 @@ struct JournalView: View {
             )
             .presentationDetents([.medium, .large])
             .presentationDragIndicator(.visible)
-            .preferredColorScheme(.dark)
+            .preferredColorScheme(colorScheme)
         }
-        .preferredColorScheme(.dark)
-        // Sync TabView index → vm.currentDate quand editions arrive
+        .preferredColorScheme(colorScheme)
         .onChange(of: editions) { _, newEditions in
             if let idx = newEditions.firstIndex(where: { $0.date == vm.currentDate }) {
                 currentEditionIndex = idx
@@ -265,18 +311,15 @@ struct JournalView: View {
         }
     }
 
-    // MARK: - TabView éditions (swipe L/R natif)
+    // MARK: - TabView éditions
 
     private var editionTabView: some View {
         TabView(selection: $currentEditionIndex) {
             if editions.isEmpty {
-                // Avant que les éditions arrivent : afficher l'état du vm
-                editionPage(for: nil)
-                    .tag(0)
+                editionPage(for: nil).tag(0)
             } else {
                 ForEach(Array(editions.enumerated()), id: \.offset) { idx, edition in
-                    editionPage(for: edition)
-                        .tag(idx)
+                    editionPage(for: edition).tag(idx)
                 }
             }
         }
@@ -286,25 +329,39 @@ struct JournalView: View {
             guard !editions.isEmpty, newIdx < editions.count else { return }
             let edition = editions[newIdx]
             guard edition.date != vm.currentDate else { return }
-            // Réinitialiser le scroll et la barre pour la nouvelle édition
             lastScrollY = 0
             withAnimation(.easeInOut(duration: 0.22)) { barVisible = true }
             onEditionSelect(edition)
         }
     }
 
-    // MARK: - Page d'une édition
-
     @ViewBuilder
     private func editionPage(for edition: PressReaderEdition?) -> some View {
         switch vm.state {
         case .idle, .loading:
-            centeredMessage("Chargement du journal…")
+            loadingView
         case .error(let msg):
             centeredMessage("Erreur : \(msg)")
         case .ready:
             articleList
         }
+    }
+
+    // MARK: - Loading
+
+    private var loadingView: some View {
+        VStack(spacing: 16) {
+            Spacer()
+            ProgressView()
+                .progressViewStyle(.circular)
+                .tint(theme.textTertiary)
+                .scaleEffect(0.9)
+            Text("Chargement du journal…")
+                .font(.system(.caption, design: .rounded))
+                .foregroundStyle(theme.textTertiary)
+            Spacer()
+        }
+        .frame(maxWidth: .infinity)
     }
 
     // MARK: - Liste articles
@@ -314,15 +371,15 @@ struct JournalView: View {
             LazyVStack(alignment: .leading, spacing: 0, pinnedViews: .sectionHeaders) {
                 ForEach(vm.sections) { section in
                     Section {
-                        ForEach(section.articles) { article in
-                            articleRow(article)
-                            Divider().overlay(faintColor).padding(.horizontal, 16)
+                        ForEach(Array(section.articles.enumerated()), id: \.element.id) { idx, article in
+                            articleRow(article, isLast: idx == section.articles.count - 1)
                         }
                     } header: {
                         sectionHeader(section.id)
                     }
                 }
-                Color.clear.frame(height: 32)
+                // Breathing room en bas
+                Color.clear.frame(height: 48)
             }
         }
         .onScrollGeometryChange(for: CGFloat.self,
@@ -341,9 +398,9 @@ struct JournalView: View {
         )
     }
 
-    // MARK: - Rows
+    // MARK: - Article row
 
-    private func articleRow(_ article: ArticleMeta) -> some View {
+    private func articleRow(_ article: ArticleMeta, isLast: Bool) -> some View {
         Button {
             guard loadingArticleId == nil else { return }
             loadingArticleId = article.id
@@ -355,59 +412,75 @@ struct JournalView: View {
                 }
             }
         } label: {
-            HStack(alignment: .top, spacing: 12) {
-                VStack(alignment: .leading, spacing: 4) {
+            HStack(alignment: .top, spacing: 14) {
+                // Contenu textuel
+                VStack(alignment: .leading, spacing: 5) {
                     Text(article.title)
-                        .font(.system(size: 15, weight: .medium))
-                        .foregroundStyle(activeColor)
+                        .font(.system(.callout, design: .serif).weight(.semibold))
+                        .foregroundStyle(theme.textPrimary)
                         .fixedSize(horizontal: false, vertical: true)
                         .multilineTextAlignment(.leading)
+                        .lineLimit(3)
 
                     if let sub = article.subtitle, !sub.isEmpty {
                         Text(sub)
-                            .font(.system(size: 13))
-                            .foregroundStyle(Color(white: 0.55))
+                            .font(.system(.footnote, design: .serif))
+                            .foregroundStyle(theme.textSecondary)
                             .fixedSize(horizontal: false, vertical: true)
-                            .multilineTextAlignment(.leading)
                             .lineLimit(2)
                     }
                     if let auth = article.author, !auth.isEmpty {
                         Text(auth)
-                            .font(.system(.caption2, design: .monospaced))
-                            .foregroundStyle(dimColor)
+                            .font(.system(size: 11, weight: .regular, design: .default))
+                            .foregroundStyle(theme.textTertiary)
+                            .padding(.top, 1)
                     }
                 }
+
                 Spacer(minLength: 8)
+
+                // Thumbnail ou numéro de page
                 ZStack {
                     if loadingArticleId == article.id {
                         ProgressView()
-                            .scaleEffect(0.7)
-                            .tint(dimColor)
-                            .frame(width: 72, height: 72)
+                            .scaleEffect(0.75)
+                            .tint(theme.textTertiary)
+                            .frame(width: 76, height: 76)
                     } else if let thumbURL = article.thumbnailURL {
                         AsyncImage(url: thumbURL) { img in
                             img.resizable().aspectRatio(contentMode: .fill)
                         } placeholder: {
-                            Color(white: 0.18)
+                            theme.surfaceAlt
                         }
-                        .frame(width: 72, height: 72)
-                        .cornerRadius(4)
-                        .clipped()
+                        .frame(width: 76, height: 76)
+                        .clipShape(RoundedRectangle(cornerRadius: 3))
                     } else if let p = article.pageNumber {
-                        Text("p.\(p)")
-                            .font(.system(.caption2, design: .monospaced))
-                            .foregroundStyle(dimColor)
-                            .frame(width: 72, alignment: .trailing)
-                    } else {
-                        Color.clear.frame(width: 0)
+                        VStack(spacing: 1) {
+                            Text("p.")
+                                .font(.system(size: 9))
+                            Text("\(p)")
+                                .font(.system(size: 16, weight: .light, design: .serif))
+                        }
+                        .foregroundStyle(theme.textTertiary)
+                        .frame(width: 40, alignment: .center)
                     }
                 }
-                .frame(width: 72)
+                .frame(width: 76)
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 12)
+            .padding(.horizontal, 18)
+            .padding(.vertical, 13)
+            .background(theme.background)
         }
         .buttonStyle(.plain)
+        // Séparateur entre articles (pas après le dernier de la section)
+        .overlay(alignment: .bottom) {
+            if !isLast {
+                Rectangle()
+                    .fill(theme.divider)
+                    .frame(height: 0.5)
+                    .padding(.leading, 18)
+            }
+        }
         .onLongPressGesture(minimumDuration: 0.4) {
             guard loadingPreviewId == nil else { return }
             loadingPreviewId = article.id
@@ -419,19 +492,28 @@ struct JournalView: View {
         }
     }
 
+    // MARK: - Section header
+
     private func sectionHeader(_ name: String) -> some View {
-        HStack {
+        let accentColor = sectionAccentColor(for: name, theme: theme)
+        return HStack(spacing: 8) {
+            Rectangle()
+                .fill(accentColor)
+                .frame(width: 3, height: 14)
+                .cornerRadius(1.5)
             Text(name.uppercased())
-                .font(.system(.caption2, design: .monospaced))
-                .foregroundStyle(dimColor)
-                .tracking(1.5)
+                .font(.system(size: 10, weight: .semibold, design: .rounded))
+                .foregroundStyle(accentColor)
+                .tracking(1.4)
             Spacer()
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 6)
-        .background(bgColor)
+        .padding(.horizontal, 18)
+        .padding(.vertical, 8)
+        .background(theme.sectionBg)
         .overlay(alignment: .bottom) {
-            Rectangle().fill(faintColor).frame(height: 0.5)
+            Rectangle()
+                .fill(theme.divider)
+                .frame(height: 0.5)
         }
     }
 
@@ -463,8 +545,8 @@ struct JournalView: View {
         VStack {
             Spacer()
             Text(msg)
-                .font(.system(.caption, design: .monospaced))
-                .foregroundStyle(dimColor)
+                .font(.system(.caption, design: .rounded))
+                .foregroundStyle(theme.textTertiary)
             Spacer()
         }
         .frame(maxWidth: .infinity)
@@ -476,83 +558,113 @@ struct JournalView: View {
 private struct ArticlePreviewSheet: View {
     let meta: ArticleMeta
     let article: ArticleContent?
+    let theme: ReadingTheme
     let onRead: () -> Void
     let onDismiss: () -> Void
 
-    private let bg = Color(red: 0.10, green: 0.10, blue: 0.10)
-    private let active = Color(white: 0.88)
-    private let dim = Color(white: 0.45)
-
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
+            // Drag handle
             HStack {
                 Spacer()
                 RoundedRectangle(cornerRadius: 2)
-                    .fill(Color(white: 0.30))
+                    .fill(theme.divider)
                     .frame(width: 36, height: 4)
                 Spacer()
             }
             .padding(.top, 12)
-            .padding(.bottom, 16)
+            .padding(.bottom, 20)
 
             ScrollView {
-                VStack(alignment: .leading, spacing: 12) {
+                VStack(alignment: .leading, spacing: 0) {
+                    // Rubrique
                     if let sec = meta.sectionName {
-                        Text(sec.uppercased())
-                            .font(.system(.caption2, design: .monospaced))
-                            .foregroundStyle(dim)
-                            .tracking(1.5)
+                        let accentColor = sectionAccentColor(for: sec, theme: theme)
+                        HStack(spacing: 6) {
+                            Rectangle()
+                                .fill(accentColor)
+                                .frame(width: 3, height: 12)
+                                .cornerRadius(1.5)
+                            Text(sec.uppercased())
+                                .font(.system(size: 10, weight: .semibold, design: .rounded))
+                                .foregroundStyle(accentColor)
+                                .tracking(1.4)
+                        }
+                        .padding(.bottom, 10)
                     }
+
+                    // Titre
                     Text(meta.title)
-                        .font(.system(size: 20, weight: .bold))
-                        .foregroundStyle(active)
+                        .font(.system(size: 22, weight: .bold, design: .serif))
+                        .foregroundStyle(theme.textPrimary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.bottom, 8)
+
+                    // Sous-titre
                     if let sub = meta.subtitle, !sub.isEmpty {
                         Text(sub)
-                            .font(.system(size: 14))
-                            .foregroundStyle(Color(white: 0.60))
+                            .font(.system(size: 15, design: .serif).italic())
+                            .foregroundStyle(theme.textSecondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .padding(.bottom, 8)
                     }
+
+                    // Auteur
                     if let auth = meta.author, !auth.isEmpty {
                         Text(auth)
-                            .font(.system(.caption, design: .default))
-                            .foregroundStyle(dim)
+                            .font(.system(size: 12))
+                            .foregroundStyle(theme.textTertiary)
+                            .padding(.bottom, 16)
                     }
-                    Divider().overlay(Color(white: 0.20)).padding(.vertical, 4)
+
+                    // Séparateur
+                    Rectangle()
+                        .fill(theme.divider)
+                        .frame(height: 1)
+                        .padding(.bottom, 16)
+
+                    // Extrait
                     if let art = article {
                         let preview = art.paragraphs
                             .filter { if case .body = $0.style { return true }; return false }
                             .prefix(3)
                         ForEach(Array(preview)) { para in
                             Text(para.text)
-                                .font(.system(size: 15))
-                                .foregroundStyle(Color(white: 0.75))
-                                .lineSpacing(4)
+                                .font(.system(size: 15, design: .serif))
+                                .foregroundStyle(theme.textSecondary)
+                                .lineSpacing(5)
+                                .fixedSize(horizontal: false, vertical: true)
+                                .padding(.bottom, 12)
                         }
                     } else {
-                        ProgressView()
-                            .tint(dim)
-                            .frame(maxWidth: .infinity, alignment: .center)
-                            .padding(.vertical, 20)
+                        HStack {
+                            Spacer()
+                            ProgressView().tint(theme.textTertiary).padding(.vertical, 24)
+                            Spacer()
+                        }
                     }
+
                     Color.clear.frame(height: 20)
                 }
-                .padding(.horizontal, 20)
+                .padding(.horizontal, 22)
             }
 
+            // Bouton Lire
             Button(action: onRead) {
                 Text("Lire l'article")
-                    .font(.system(.body, design: .monospaced))
-                    .foregroundStyle(bg)
+                    .font(.system(.body, design: .serif).weight(.medium))
+                    .foregroundStyle(theme.background)
                     .frame(maxWidth: .infinity)
-                    .padding(.vertical, 14)
-                    .background(active)
+                    .padding(.vertical, 15)
+                    .background(theme.textPrimary)
             }
             .buttonStyle(.plain)
             .disabled(article == nil)
+            .opacity(article == nil ? 0.4 : 1)
             .padding(.horizontal, 20)
-            .padding(.bottom, 24)
+            .padding(.bottom, 28)
         }
-        .background(bg.ignoresSafeArea())
-        .preferredColorScheme(.dark)
+        .background(theme.background.ignoresSafeArea())
     }
 }
 
