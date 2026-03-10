@@ -15,15 +15,13 @@ struct ContentView: View {
             ZStack {
                 Color.termBg.ignoresSafeArea()
                 VStack(alignment: .leading, spacing: 0) {
-                    headerBar
-                    Divider().overlay(Color.termFaint).padding(.horizontal)
 
                     if showNewspapers {
                         // ── Liste journaux : pas de canard ───────────────────
                         newspaperListView
                     } else {
                         // ── Écran login / chargement / idle ──────────────────
-                        // Canard pleine largeur + stateLabel en overlay
+                        // Canard pleine largeur
                         ZStack(alignment: .bottomTrailing) {
                             DuckHeaderView(
                                 walking:        walking,
@@ -36,11 +34,6 @@ struct ContentView: View {
                                 }
                             )
                             .padding(.vertical, 12)
-                            Text(stateLabel)
-                                .font(.system(.caption2, design: .monospaced))
-                                .foregroundStyle(Color.termFaint)
-                                .padding(.trailing, 20)
-                                .padding(.bottom, 12)
                         }
                         // Préchargement silencieux pendant l'animation canard
                         if walking {
@@ -58,7 +51,6 @@ struct ContentView: View {
                         }
 
                         Spacer(minLength: 0)
-                        TerminalSignature()
                     }
                 }
             }
@@ -101,32 +93,6 @@ struct ContentView: View {
 
     // MARK: - Indicateur (visible seulement pendant le chargement)
 
-    private var stateLabel: String {
-        if walking { return "[ … ]" }
-        switch vm.loginState {
-        case .failure: return "[ ERR ]"
-        case .idle:    return "[ — ]"
-        default:       return ""
-        }
-    }
-
-    // MARK: - Header titre
-
-    private var headerBar: some View {
-        HStack {
-            Text("CANARD // BAVL PRESSE")
-                .font(.system(.caption2, design: .monospaced))
-                .foregroundStyle(Color.termFaint)
-            Spacer()
-            if isIPad {
-                Text("[ iPad ]")
-                    .font(.system(.caption2, design: .monospaced))
-                    .foregroundStyle(Color.termFaint)
-            }
-        }
-        .padding(.horizontal).padding(.top, 6).padding(.bottom, 4)
-    }
-
     // MARK: - Vue idle / erreur
 
     private var idleView: some View {
@@ -155,18 +121,10 @@ struct ContentView: View {
 
     private var newspaperListView: some View {
         VStack(spacing: 0) {
-            HStack {
-                Text("# [OK] session active")
-                    .font(.system(.caption2, design: .monospaced))
-                    .foregroundStyle(Color.termFaint)
-                Spacer()
-            }
-            .padding(.horizontal).padding(.vertical, 6)
             Divider().overlay(Color.termFaint).padding(.horizontal)
             ScrollView {
                 if isIPad { iPadGrid } else { phoneList }
             }
-            TerminalSignature()   // collé en bas, hors du ScrollView
         }
     }
 
