@@ -21,7 +21,6 @@ struct ContentView: View {
                         newspaperListView
                     } else {
                         // ── Écran login / chargement / idle ──────────────────
-                        // Canard pleine largeur
                         ZStack(alignment: .bottomTrailing) {
                             DuckHeaderView(
                                 walking:        walking,
@@ -76,7 +75,6 @@ struct ContentView: View {
                 vm.authReady   = false
                 vm.checkExistingSession()
             }
-            // Login en cours → animation
             .onChange(of: vm.loginState) { _, state in
                 if case .loading = state {
                     walking        = true
@@ -86,12 +84,9 @@ struct ContentView: View {
                     walking = false
                 }
             }
-
         }
         .preferredColorScheme(.dark)
     }
-
-    // MARK: - Indicateur (visible seulement pendant le chargement)
 
     // MARK: - Vue idle / erreur
 
@@ -117,14 +112,18 @@ struct ContentView: View {
         .frame(maxWidth: isIPad ? 600 : .infinity, alignment: .leading)
     }
 
-    // MARK: - Liste journaux (sans canard)
+    // MARK: - Liste journaux
 
     private var newspaperListView: some View {
         VStack(spacing: 0) {
             Divider().overlay(Color.termFaint).padding(.horizontal)
             ScrollView {
                 if isIPad { iPadGrid } else { phoneList }
+                // Safe area bottom
+                Color.clear.frame(height: 20)
             }
+            // Scroll indicators dans la safe area
+            .contentMargins(.bottom, 0, for: .scrollIndicators)
         }
     }
 
@@ -165,7 +164,7 @@ struct ContentView: View {
     @ViewBuilder
     private func newspaperRow(paper: Newspaper, index: Int) -> some View {
         Button {
-            selectedPaper   = paper
+            selectedPaper = paper
         } label: {
             HStack(alignment: .top, spacing: 8) {
                 Text(String(format: "%02d.", index + 1))
