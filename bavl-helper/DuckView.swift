@@ -129,7 +129,7 @@ struct DuckHeaderView: View {
         // Phase 1 : couché 2.2s
         DispatchQueue.main.asyncAfter(deadline: .now() + 2.2) {
             // Phase 2 : se lève 0.6s
-            frame = frameLev
+            frame = frameDebout
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
                 // Phase 3 : marche — cycle 0.8s, step = largeur / nb_cycles_cibles
                 // On vise ~6 cycles visibles (4.8s de marche), step = screenWidth / 6
@@ -140,7 +140,7 @@ struct DuckHeaderView: View {
                 var cyclesDone = 0
 
                 func tick() {
-                    frame = frameLev
+                    frame = frameDebout
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                         frame = marcheA
                         withAnimation(.linear(duration: 0.12)) { positionX += step * 0.5 }
