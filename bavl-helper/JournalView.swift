@@ -201,7 +201,7 @@ struct JournalView: View {
     // MARK: body
 
     var body: some View {
-        ZStack {
+        ZStack(alignment: .top) {
             bgColor.ignoresSafeArea()
 
             switch vm.state {
@@ -210,9 +210,8 @@ struct JournalView: View {
             case .error(let msg): centeredMessage("Erreur : \(msg)")
             case .ready:   articleList
             }
-        }
-        // Barre en haut — SwiftUI gère le notch automatiquement
-        .safeAreaInset(edge: .top, spacing: 0) {
+
+            // Barre flottante par-dessus le contenu
             NavBar(
                 title: newspaper.name,
                 subtitle: dateLabel(vm.currentDate),
@@ -293,8 +292,10 @@ struct JournalView: View {
                 Color.clear.frame(height: 32)
             }
         }
+        // Réserver l'espace pour la NavBar flottante (barre = 89pt, toujours visible au top)
+        .contentMargins(.top, NavBar.height, for: .scrollContent)
         .onScrollGeometryChange(for: CGFloat.self,
-            of: { $0.contentOffset.y },
+            of: { $0.contentOffset.y + $0.contentInsets.top },
             action: { _, new in
                 let delta = new - lastScrollY
                 lastScrollY = new

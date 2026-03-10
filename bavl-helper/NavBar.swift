@@ -1,19 +1,27 @@
 import SwiftUI
 
 /// Barre de navigation partagée — JournalView et ArticleReaderView.
-/// Placée via `.safeAreaInset(edge: .top, spacing: 0)` sur le ZStack parent.
-/// SwiftUI gère automatiquement le notch/Dynamic Island — aucun calcul manuel.
-/// L'animation hide/show est obtenue via `frame(height:)` + `clipped()`.
+///
+/// Usage :
+///   ZStack { … }
+///   .overlay(alignment: .top) { NavBar(title:, subtitle:, visible:) }
+///
+/// La barre est une overlay flottante par-dessus le contenu.
+/// Elle ne perturbe pas le layout du contenu en dessous.
+/// Animation : offset vers le haut + opacity.
+/// Le contenu scrollable doit réserver de l'espace via contentMargins ou padding.
 struct NavBar: View {
     let title: String
     let subtitle: String
     let visible: Bool
 
-    private let bgColor   = Color(red: 0.13, green: 0.13, blue: 0.13)
-    private let faint     = Color(white: 0.20)
+    // Hauteur de la barre sans la safeArea (2 lignes × 44pt + 1 divider)
+    static let height: CGFloat = 89
+
+    private let bgColor       = Color(red: 0.13, green: 0.13, blue: 0.13)
+    private let faint         = Color(white: 0.20)
     private let titleColor    = Color(white: 0.82)
     private let subtitleColor = Color(white: 0.55)
-    private let barHeight: CGFloat = 89   // 2 × 44 + 1 divider (≈1pt)
 
     var body: some View {
         VStack(spacing: 0) {
@@ -36,9 +44,9 @@ struct NavBar: View {
             Divider().overlay(faint)
         }
         .background(bgColor)
-        // Animation hide : la hauteur passe à 0, le contenu est clippé
-        .frame(height: visible ? barHeight : 0)
-        .clipped()
+        // Animation : glisse vers le haut et disparaît
+        .offset(y: visible ? 0 : -NavBar.height)
+        .opacity(visible ? 1 : 0)
         .animation(.easeInOut(duration: 0.22), value: visible)
     }
 }
