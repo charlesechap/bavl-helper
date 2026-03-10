@@ -2,20 +2,14 @@ import SwiftUI
 
 /// Barre de navigation partagée — JournalView et ArticleReaderView.
 ///
-/// Usage :
-///   ZStack { … }
-///   .overlay(alignment: .top) { NavBar(title:, subtitle:, visible:) }
-///
-/// La barre est une overlay flottante par-dessus le contenu.
-/// Elle ne perturbe pas le layout du contenu en dessous.
-/// Animation : offset vers le haut + opacity.
-/// Le contenu scrollable doit réserver de l'espace via contentMargins ou padding.
+/// Utilisée en .overlay(alignment: .top) { NavBar().ignoresSafeArea(edges: .top) }
+/// Le contenu scrollable doit réserver NavBar.height via contentMargins.
 struct NavBar: View {
     let title: String
     let subtitle: String
     let visible: Bool
 
-    // Hauteur de la barre sans la safeArea (2 lignes × 44pt + 1 divider)
+    /// Hauteur de la barre (2 lignes × 44pt + séparateur) — hors safe area top
     static let height: CGFloat = 89
 
     private let bgColor       = Color(red: 0.13, green: 0.13, blue: 0.13)
@@ -25,6 +19,11 @@ struct NavBar: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            // Zone safe area — fond seulement, pas de contenu
+            Color.clear
+                .frame(maxWidth: .infinity)
+
+            // Ligne 1 : titre
             Text(title)
                 .font(.system(.callout, design: .monospaced))
                 .foregroundStyle(titleColor)
@@ -34,6 +33,7 @@ struct NavBar: View {
 
             Divider().overlay(faint)
 
+            // Ligne 2 : sous-titre / date
             Text(subtitle)
                 .font(.system(.callout, design: .monospaced))
                 .foregroundStyle(subtitleColor)
@@ -43,7 +43,7 @@ struct NavBar: View {
 
             Divider().overlay(faint)
         }
-        .background(bgColor)
+        .background(bgColor.ignoresSafeArea(edges: .top))
         // Animation : glisse vers le haut et disparaît
         .offset(y: visible ? 0 : -NavBar.height)
         .opacity(visible ? 1 : 0)
