@@ -6,8 +6,8 @@ struct ArticleParagraph: Identifiable {
     let id = UUID()
     let text: String
     let style: ParagraphStyle
-    let imageURL: URL?    // non-nil quand style == .image
-    let nativeSize: CGSize // taille native en pixels (pour éviter upscale)
+    let imageURL: URL?
+    let nativeSize: CGSize
 
     init(text: String, style: ParagraphStyle, imageURL: URL? = nil, nativeSize: CGSize = .zero) {
         self.text = text
@@ -18,10 +18,10 @@ struct ArticleParagraph: Identifiable {
 
     enum ParagraphStyle {
         case body
-        case heading    // style = 2
-        case subheading // style = 3 (si existe)
-        case caption    // style = 4 (si existe)
-        case image      // type = "photo" avec regionKey
+        case heading
+        case subheading
+        case caption
+        case image
     }
 }
 
@@ -31,7 +31,7 @@ struct ArticleContent: Identifiable {
     let subtitle: String?
     let author: String?
     let sectionName: String?
-    let date: String          // "20260307"
+    let date: String
     let paragraphs: [ArticleParagraph]
 
     static func parse(from json: [String: Any]) -> ArticleContent? {
@@ -39,22 +39,16 @@ struct ArticleContent: Identifiable {
               let titleRaw = json["title"] as? String
         else { return nil }
         let title = titleRaw.fixedEncoding
-
         let subtitle = (json["subtitle"] as? String)?.fixedEncoding
         let author = (json["author"] as? String)?.fixedEncoding
         let sectionName = ((json["issue"] as? [String: Any])?["sectionName"] as? String)?.fixedEncoding
-
-        // Date depuis issue.date
         let dateStr = (json["issue"] as? [String: Any])?["date"] as? String ?? ""
 
-        // Parser paragraphs
         var paragraphs: [ArticleParagraph] = []
         if let rawParagraphs = json["paragraphs"] as? [[String: Any]] {
             for p in rawParagraphs {
                 let pType = p["type"] as? String ?? "text"
-                // Image (type = "photo")
                 if pType == "photo" {
-                    // regionKey peut être sous "regionKey" ou "id" selon l'endpoint
                     let rawKey = (p["regionKey"] as? String) ?? (p["id"] as? String) ?? ""
                     print("ARTICLE photo keys=\(Array(p.keys).sorted()) rawKey=\(rawKey.prefix(20))")
                     if !rawKey.isEmpty,
@@ -66,10 +60,9 @@ struct ArticleContent: Identifiable {
                     continue
                 }
                 guard let raw = p["text"] as? String else { continue }
-                // Nettoyer soft-hyphens et tirets conditionnels
                 let clean = raw.fixedEncoding
-                    .replacingOccurrences(of: "\u{00AD}", with: "") // soft hyphen
-                    .replacingOccurrences(of: "\u{200B}", with: "") // zero-width space
+                    .replacingOccurrences(of: "\u{00AD}", with: "")
+                    .replacingOccurrences(of: "\u{200B}", with: "")
                 let style: ArticleParagraph.ParagraphStyle
                 switch p["style"] as? Int {
                 case 2: style = .heading
@@ -81,7 +74,6 @@ struct ArticleContent: Identifiable {
             }
         }
 
-        // Injecter images depuis json["images"] (absent des paragraphs)
         if let imgs = json["images"] as? [[String: Any]] {
             var imageParagraphs: [ArticleParagraph] = []
             for img in imgs {
@@ -89,11 +81,9 @@ struct ArticleContent: Identifiable {
                 guard !rawKey.isEmpty,
                       let encoded = rawKey.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed)
                 else { continue }
-                // Filtrer icônes/filets, ne pas upscaler au-delà du natif
                 let sizeDict = img["size"] as? [String: Any]
                 let nativeW = (sizeDict?["width"] as? Int) ?? (sizeDict?["width"] as? Double).map { Int($0) } ?? 0
                 let nativeH = (sizeDict?["height"] as? Int) ?? (sizeDict?["height"] as? Double).map { Int($0) } ?? 0
-                // Ignorer images trop petites (icônes, filets graphiques)
                 guard nativeW >= 100 && nativeH >= 100 else { continue }
                 let targetW = nativeW > 0 ? min(nativeW, 1170) : 1170
                 guard let imgURL = URL(string: "https://i.prcdn.co/img?regionKey=\(encoded)&width=\(targetW)")
@@ -102,7 +92,6 @@ struct ArticleContent: Identifiable {
                 let sz = CGSize(width: CGFloat(nativeW), height: CGFloat(nativeH))
                 imageParagraphs.append(ArticleParagraph(text: caption, style: .image, imageURL: imgURL, nativeSize: sz))
             }
-            // Insérer la première image après le 1er paragraphe body (chapeau)
             if !imageParagraphs.isEmpty && !paragraphs.isEmpty {
                 paragraphs.insert(contentsOf: imageParagraphs, at: min(1, paragraphs.count))
             }
@@ -117,6 +106,7 @@ struct ArticleContent: Identifiable {
 }
 
 // MARK: - Cache articles partagé
+
 final class ArticleCache {
     nonisolated(unsafe) private var cache: [Int64: ArticleContent] = [:]
     nonisolated(unsafe) private var inFlight: Set<Int64> = []
@@ -155,14 +145,14 @@ final class ArticleCache {
     }
 }
 
-// MARK: - Vue principale
+// MARK: - ArticleReaderView
 
 struct ArticleReaderView: View {
     let allArticles: [ArticleMeta]
     let initialIndex: Int
     let newspaperName: String
-    let editionDate: String   // "20260309"
-    let pressReaderPath: String  // ex: "switzerland/le-temps"
+    let editionDate: String
+    let pressReaderPath: String
     let bearer: String
     let onJournal: () -> Void
 
@@ -185,14 +175,17 @@ struct ArticleReaderView: View {
     }
 
     var body: some View {
-        GeometryReader { geo in
-            let safeTop = geo.safeAreaInsets.top
-            ZStack(alignment: .top) {
-                Color(red: 0.13, green: 0.13, blue: 0.13).ignoresSafeArea()
-                pageTabView(safeTop: safeTop)
-                readerBar(safeTop: safeTop)
-            }
-            .ignoresSafeArea(edges: .top)
+        ZStack {
+            Color(red: 0.13, green: 0.13, blue: 0.13).ignoresSafeArea()
+            articleTabView
+        }
+        // Barre identique à JournalView — SwiftUI gère le notch
+        .safeAreaInset(edge: .top, spacing: 0) {
+            NavBar(
+                title: newspaperName,
+                subtitle: barDateLabel,
+                visible: barVisible
+            )
         }
         .sheet(isPresented: $showShare) {
             ShareSheet(items: [shareText])
@@ -200,11 +193,27 @@ struct ArticleReaderView: View {
         .preferredColorScheme(.dark)
     }
 
-    private func pageTabView(safeTop: CGFloat) -> some View {
+    // MARK: - TabView articles (swipe L/R natif)
+
+    private var articleTabView: some View {
         TabView(selection: $currentIndex) {
             ForEach(Array(allArticles.enumerated()), id: \.offset) { idx, meta in
-                pageView(idx: idx, meta: meta, safeTop: safeTop)
-                    .tag(idx)
+                ArticlePageView(
+                    meta: meta,
+                    prevMeta: idx > 0 ? allArticles[idx - 1] : nil,
+                    nextMeta: idx + 1 < allArticles.count ? allArticles[idx + 1] : nil,
+                    cache: cache,
+                    bearer: bearer,
+                    pressReaderPath: pressReaderPath,
+                    isActive: idx == currentIndex,
+                    onPrevArticle: { currentIndex = max(0, idx - 1) },
+                    onNextArticle: { currentIndex = idx + 1 },
+                    onJournal: onJournal,
+                    onShare: { text in shareText = text; showShare = true },
+                    barVisible: $barVisible,
+                    lastScrollY: $lastScrollY
+                )
+                .tag(idx)
             }
         }
         .tabViewStyle(.page(indexDisplayMode: .never))
@@ -221,58 +230,6 @@ struct ArticleReaderView: View {
                 .map { allArticles[$0].id }
             cache.prefetch(ids: ids, bearer: bearer)
         }
-        .gesture(
-            DragGesture(minimumDistance: 40)
-                .onEnded { v in
-                    if v.translation.height > 80 && abs(v.translation.width) < 60 {
-                        onJournal()
-                    }
-                }
-        )
-    }
-
-    private func pageView(idx: Int, meta: ArticleMeta, safeTop: CGFloat) -> some View {
-        ArticlePageView(
-            meta: meta,
-            prevMeta: idx > 0 ? allArticles[idx - 1] : nil,
-            nextMeta: idx + 1 < allArticles.count ? allArticles[idx + 1] : nil,
-            cache: cache,
-            bearer: bearer,
-            pressReaderPath: pressReaderPath,
-            safeTop: safeTop,
-            isActive: idx == currentIndex,
-            onPrevArticle: { currentIndex = max(0, idx - 1) },
-            onNextArticle: { currentIndex = idx + 1 },
-            onJournal: onJournal,
-            onShare: { text in shareText = text; showShare = true },
-            barVisible: $barVisible,
-            lastScrollY: $lastScrollY
-        )
-    }
-
-    // MARK: - TerminalBar
-
-    private func readerBar(safeTop: CGFloat) -> some View {
-        VStack(spacing: 0) {
-            VStack(spacing: 3) {
-                Text(newspaperName)
-                    .font(.system(.callout, design: .monospaced))
-                    .foregroundStyle(Color(white: 0.82))
-                    .lineLimit(1)
-                Text(barDateLabel)
-                    .font(.system(.callout, design: .monospaced))
-                    .foregroundStyle(Color(white: 0.55))
-                    .lineLimit(1)
-            }
-            .frame(maxWidth: .infinity)
-            .frame(height: 64)
-            .background(Color(red: 0.13, green: 0.13, blue: 0.13))
-            Divider().overlay(Color(white: 0.20))
-        }
-        .offset(y: barVisible ? 0 : -(safeTop + 64))
-        .opacity(barVisible ? 1 : 0)
-        .animation(.easeInOut(duration: 0.22), value: barVisible)
-        .padding(.top, safeTop)
     }
 
     private var barDateLabel: String {
@@ -281,14 +238,14 @@ struct ArticleReaderView: View {
         fmt.locale = Locale(identifier: "fr_CH")
         guard let d = fmt.date(from: editionDate) else { return "—" }
         let disp = DateFormatter()
-        disp.dateFormat = "EEEE d MMMM yyyy"   // "lundi 9 mars 2026"
+        disp.dateFormat = "EEEE d MMMM yyyy"
         disp.locale = Locale(identifier: "fr_CH")
         let s = disp.string(from: d)
         return s.prefix(1).uppercased() + s.dropFirst()
     }
 }
 
-// MARK: - ArticlePageView (une page du TabView)
+// MARK: - ArticlePageView
 
 private struct ArticlePageView: View {
     let meta: ArticleMeta
@@ -297,7 +254,6 @@ private struct ArticlePageView: View {
     let cache: ArticleCache
     let bearer: String
     let pressReaderPath: String
-    let safeTop: CGFloat
     let isActive: Bool
     let onPrevArticle: () -> Void
     let onNextArticle: () -> Void
@@ -306,20 +262,19 @@ private struct ArticlePageView: View {
 
     @State private var article: ArticleContent? = nil
     @State private var loading = true
-    // scrollID forcé à changer à chaque fois qu'on revient sur cet article
     @State private var scrollResetID = UUID()
     @Binding var barVisible: Bool
     @Binding var lastScrollY: CGFloat
 
     var body: some View {
-        ZStack(alignment: .top) {
+        ZStack {
             Color(red: 0.13, green: 0.13, blue: 0.13).ignoresSafeArea()
 
             if let art = article {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 0) {
                         articleHeader(art)
-                            .padding(.top, safeTop + 64 + 20)
+                            .padding(.top, 20)
                             .padding(.horizontal, 20)
 
                         Divider()
@@ -336,11 +291,10 @@ private struct ArticlePageView: View {
                         articleFooter(art)
                     }
                 }
-                // Forcer le retour en haut à chaque activation de cette page
                 .id(scrollResetID)
                 .onScrollGeometryChange(for: CGFloat.self,
                     of: { $0.contentOffset.y },
-                    action: { old, new in
+                    action: { _, new in
                         let delta = new - lastScrollY
                         lastScrollY = new
                         if new <= 0 {
@@ -356,18 +310,15 @@ private struct ArticlePageView: View {
             } else if loading {
                 VStack {
                     Spacer()
-                    ProgressView()
-                        .tint(Color(white: 0.45))
+                    ProgressView().tint(Color(white: 0.45))
                     Spacer()
                 }
                 .frame(maxWidth: .infinity)
-                .padding(.top, safeTop + 44)
             }
         }
         .onAppear { loadFromCacheOrFetch() }
         .onChange(of: isActive) { _, active in
             if active {
-                // Revenir en haut à chaque fois qu'on arrive sur cette page
                 scrollResetID = UUID()
                 loadFromCacheOrFetch()
             }
@@ -382,7 +333,7 @@ private struct ArticlePageView: View {
             loading = true
             cache.fetch(id: meta.id, bearer: bearer) { art in
                 article = art
-                loading = art == nil ? false : false
+                loading = false
             }
         }
     }
@@ -410,9 +361,7 @@ private struct ArticlePageView: View {
             }
             HStack(spacing: 8) {
                 if let auth = art.author, !auth.isEmpty {
-                    Text(auth)
-                        .font(.system(.caption))
-                        .foregroundStyle(Color(white: 0.50))
+                    Text(auth).font(.system(.caption)).foregroundStyle(Color(white: 0.50))
                 }
                 if !art.date.isEmpty, let d = displayDate(art.date) {
                     Text("·").foregroundStyle(Color(white: 0.30))
@@ -528,7 +477,6 @@ private struct ArticlePageView: View {
     }
 
     private func articleURL(_ art: ArticleContent) -> URL? {
-        // URL PressReader web pour l'article
         let path = pressReaderPath.isEmpty ? "publication" : pressReaderPath
         return URL(string: "https://www.pressreader.com/\(path)/\(art.date)/\(art.id)/textview")
     }
@@ -542,32 +490,20 @@ private struct ArticlePageView: View {
 
         VStack(spacing: 0) {
             Divider().overlay(faint)
-
-            // ── Article suivant ──
             if let next = nextMeta {
                 adjacentArticleRow(meta: next, label: "suivant", active: active, dim: dim, action: onNextArticle)
             }
-
-            // ── Toolbar d'actions ──
             Divider().overlay(faint)
             HStack(spacing: 0) {
-                // Partager
                 toolbarButton(icon: "square.and.arrow.up", label: "partager", enabled: true, active: active, dim: dim) {
                     onShare(buildShareText(art))
                 }
-
-                // Recharger
                 toolbarButton(icon: "arrow.clockwise", label: "recharger", enabled: true, active: active, dim: dim) {
-                    article = nil
-                    loading = true
+                    article = nil; loading = true
                     cache.fetch(id: meta.id, bearer: bearer) { fetched in
-                        article = fetched
-                        loading = false
-                        scrollResetID = UUID()
+                        article = fetched; loading = false; scrollResetID = UUID()
                     }
                 }
-
-                // Ouvrir dans Safari
                 if let url = articleURL(art) {
                     toolbarButton(icon: "safari", label: "safari", enabled: true, active: active, dim: dim) {
                         UIApplication.shared.open(url)
@@ -582,19 +518,11 @@ private struct ArticlePageView: View {
     }
 
     @ViewBuilder
-    private func toolbarButton(
-        icon: String, label: String, enabled: Bool,
-        active: Color, dim: Color,
-        action: @escaping () -> Void
-    ) -> some View {
+    private func toolbarButton(icon: String, label: String, enabled: Bool, active: Color, dim: Color, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             VStack(spacing: 4) {
-                Image(systemName: icon)
-                    .font(.system(size: 18))
-                    .foregroundStyle(enabled ? active : dim.opacity(0.4))
-                Text(label)
-                    .font(.system(size: 9, design: .monospaced))
-                    .foregroundStyle(enabled ? dim : dim.opacity(0.4))
+                Image(systemName: icon).font(.system(size: 18)).foregroundStyle(enabled ? active : dim.opacity(0.4))
+                Text(label).font(.system(size: 9, design: .monospaced)).foregroundStyle(enabled ? dim : dim.opacity(0.4))
             }
             .frame(maxWidth: .infinity)
         }
@@ -603,11 +531,7 @@ private struct ArticlePageView: View {
     }
 
     @ViewBuilder
-    private func adjacentArticleRow(
-        meta: ArticleMeta, label: String,
-        active: Color, dim: Color,
-        action: @escaping () -> Void
-    ) -> some View {
+    private func adjacentArticleRow(meta: ArticleMeta, label: String, active: Color, dim: Color, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             HStack(alignment: .top, spacing: 12) {
                 VStack(alignment: .leading, spacing: 4) {
@@ -642,6 +566,7 @@ private struct ArticlePageView: View {
 }
 
 // MARK: - ShareSheet
+
 private struct ShareSheet: UIViewControllerRepresentable {
     let items: [Any]
     func makeUIViewController(context: Context) -> UIActivityViewController {
@@ -651,8 +576,8 @@ private struct ShareSheet: UIViewControllerRepresentable {
 }
 
 // MARK: - Encoding fix
+
 private extension String {
-    /// Corrige le double-encoding UTF-8/Latin-1 fréquent dans l'API PressReader.
     var fixedEncoding: String {
         guard let latin1 = self.data(using: .isoLatin1),
               let utf8 = String(data: latin1, encoding: .utf8)

@@ -83,7 +83,6 @@ class JournalViewModel: ObservableObject {
     func onTOCLoaded(ids: [Int64], issueId: String) {
         print("JOURNAL onTOCLoaded ids=\(ids.count) token.count=\(bearerToken.count)")
         guard !ids.isEmpty else { return }
-        // Ignorer si même édition déjà chargée (double didFinish du WebView)
         guard issueId != currentIssueId || state == LoadState.idle else {
             print("JOURNAL onTOCLoaded skipped: same issueId=\(issueId)")
             return
@@ -94,9 +93,7 @@ class JournalViewModel: ObservableObject {
         fetchMetadata(ids: ids)
     }
 
-    // MARK: - Fetch metadata légère (articleFields=3927)
     private func fetchMetadata(ids: [Int64]) {
-        // PressReader limite à ~20 ids par requête — on batch
         let batchSize = 20
         let batches = stride(from: 0, to: ids.count, by: batchSize).map {
             Array(ids[$0..<min($0 + batchSize, ids.count)])
@@ -119,9 +116,7 @@ class JournalViewModel: ObservableObject {
                 defer { group.leave() }
                 let status = (resp as? HTTPURLResponse)?.statusCode ?? 0
                 guard let data else { print("JOURNAL meta no data"); return }
-                // Logger les 200 premiers chars pour voir la structure
                 print("JOURNAL meta status=\(status) len=\(data.count)")
-                // Essayer dict {Items:[]} ou array directement []
                 var items: [[String: Any]] = []
                 if let obj = try? JSONSerialization.jsonObject(with: data) {
                     if let dict = obj as? [String: Any] {
@@ -194,22 +189,21 @@ struct JournalView: View {
     @State private var loadingArticleId: Int64? = nil
     @State private var barVisible = true
     @State private var lastScrollY: CGFloat = 0
-    @State private var editionInsertEdge: Edge = .trailing
-    @State private var editionRemoveEdge: Edge = .leading
     @State private var previewMeta: ArticleMeta? = nil
     @State private var previewArticle: ArticleContent? = nil
     @State private var loadingPreviewId: Int64? = nil
 
-    private let bgColor = Color(red: 0.13, green: 0.13, blue: 0.13)
+    private let bgColor  = Color(red: 0.13, green: 0.13, blue: 0.13)
     private let activeColor = Color(white: 0.82)
-    private let dimColor = Color(white: 0.35)
-    private let faintColor = Color(white: 0.20)
+    private let dimColor    = Color(white: 0.35)
+    private let faintColor  = Color(white: 0.20)
+
+    // MARK: body
 
     var body: some View {
         ZStack {
             bgColor.ignoresSafeArea()
 
-            // Contenu principal
             switch vm.state {
             case .idle:    centeredMessage("Connexion en cours…")
             case .loading: centeredMessage("Chargement du journal…")
@@ -217,10 +211,17 @@ struct JournalView: View {
             case .ready:   articleList
             }
         }
+        // Barre en haut — SwiftUI gère le notch automatiquement
         .safeAreaInset(edge: .top, spacing: 0) {
-            journalBar
+            NavBar(
+                title: newspaper.name,
+                subtitle: dateLabel(vm.currentDate),
+                visible: barVisible
+            )
         }
-        // Sheet article (TabView multi-articles)
+        // Swipe L/R sur toute la vue pour naviguer entre éditions
+        .simultaneousGesture(editionSwipeGesture)
+        // Sheet article
         .sheet(item: $selectedArticle) { _ in
             ArticleReaderView(
                 allArticles: flatArticles,
@@ -247,17 +248,31 @@ struct JournalView: View {
                         selectedArticle = art
                     }
                 },
-                onDismiss: {
-                    previewMeta = nil
-                    previewArticle = nil
-                }
+                onDismiss: { previewMeta = nil; previewArticle = nil }
             )
             .presentationDetents([.medium, .large])
             .presentationDragIndicator(.visible)
             .preferredColorScheme(.dark)
         }
-
         .preferredColorScheme(.dark)
+    }
+
+    // MARK: - Geste swipe édition (toute la fenêtre)
+
+    private var editionSwipeGesture: some Gesture {
+        DragGesture(minimumDistance: 40)
+            .onEnded { v in
+                let horiz = abs(v.translation.width) > abs(v.translation.height) * 1.5
+                guard horiz else { return }
+                guard let idx = editions.firstIndex(where: { $0.date == vm.currentDate }) else { return }
+                if v.translation.width < 0 && idx > 0 {
+                    // swipe gauche → édition plus récente (index plus petit)
+                    withAnimation(.easeInOut(duration: 0.22)) { onEditionSelect(editions[idx - 1]) }
+                } else if v.translation.width > 0 && idx + 1 < editions.count {
+                    // swipe droite → édition plus ancienne
+                    withAnimation(.easeInOut(duration: 0.22)) { onEditionSelect(editions[idx + 1]) }
+                }
+            }
     }
 
     // MARK: - Liste articles
@@ -294,6 +309,8 @@ struct JournalView: View {
         )
     }
 
+    // MARK: - Rows
+
     private func articleRow(_ article: ArticleMeta) -> some View {
         Button {
             guard loadingArticleId == nil else { return }
@@ -322,7 +339,6 @@ struct JournalView: View {
                             .multilineTextAlignment(.leading)
                             .lineLimit(2)
                     }
-
                     if let auth = article.author, !auth.isEmpty {
                         Text(auth)
                             .font(.system(.caption2, design: .monospaced))
@@ -330,7 +346,6 @@ struct JournalView: View {
                     }
                 }
                 Spacer(minLength: 8)
-                // Zone droite fixe — évite le relayout au tap
                 ZStack {
                     if loadingArticleId == article.id {
                         ProgressView()
@@ -339,8 +354,7 @@ struct JournalView: View {
                             .frame(width: 72, height: 72)
                     } else if let thumbURL = article.thumbnailURL {
                         AsyncImage(url: thumbURL) { img in
-                            img.resizable()
-                                .aspectRatio(contentMode: .fill)
+                            img.resizable().aspectRatio(contentMode: .fill)
                         } placeholder: {
                             Color(white: 0.18)
                         }
@@ -389,100 +403,22 @@ struct JournalView: View {
         }
     }
 
-    // MARK: - TerminalBar
-    // Placée via .safeAreaInset(edge: .top) sur le ZStack parent.
-    // SwiftUI gère automatiquement le notch/Dynamic Island — aucun calcul manuel.
-    // Pour l'animation hide : on réduit la hauteur à 0 + opacity 0.
-    private var journalBar: some View {
-        VStack(spacing: 0) {
-            Text(newspaper.name)
-                .font(.system(.callout, design: .monospaced))
-                .foregroundStyle(Color(white: 0.82))
-                .lineLimit(1)
-                .frame(maxWidth: .infinity)
-                .frame(height: barVisible ? 44 : 0)
-                .background(bgColor)
-                .clipped()
-
-            if barVisible {
-                Divider().overlay(faintColor)
-
-                Text(dateLabel)
-                    .font(.system(.callout, design: .monospaced))
-                    .foregroundStyle(Color(white: 0.55))
-                    .lineLimit(1)
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 44)
-                    .background(bgColor)
-                    .id(vm.currentDate)
-                    .transition(.asymmetric(
-                        insertion: .move(edge: editionInsertEdge).combined(with: .opacity),
-                        removal:   .move(edge: editionRemoveEdge).combined(with: .opacity)
-                    ))
-
-                Divider().overlay(faintColor)
-            }
-        }
-        .background(bgColor)
-        .animation(.easeInOut(duration: 0.22), value: barVisible)
-        .gesture(
-            DragGesture(minimumDistance: 30)
-                .onEnded { v in
-                    let isHoriz = abs(v.translation.width) > abs(v.translation.height)
-                    if isHoriz {
-                        guard let idx = editions.firstIndex(where: { $0.date == vm.currentDate }) else { return }
-                        if v.translation.width < -30 && idx > 0 {
-                            editionInsertEdge = .trailing
-                            editionRemoveEdge = .leading
-                            withAnimation(.easeInOut(duration: 0.22)) { onEditionSelect(editions[idx - 1]) }
-                        } else if v.translation.width > 30 && idx + 1 < editions.count {
-                            editionInsertEdge = .leading
-                            editionRemoveEdge = .trailing
-                            withAnimation(.easeInOut(duration: 0.22)) { onEditionSelect(editions[idx + 1]) }
-                        }
-                    } else if v.translation.height > 60 {
-                        onDismiss()
-                    }
-                }
-        )
-    }
-
-    private var barHeight: CGFloat { 89 }
     // MARK: - Helpers
 
-    private func editionDateLabel(_ dateStr: String) -> String {
-        guard dateStr.count == 8 else { return "—" }
-        let fmt = DateFormatter()
-        fmt.dateFormat = "yyyyMMdd"
-        fmt.locale = Locale(identifier: "fr_CH")
-        guard let d = fmt.date(from: dateStr) else { return dateStr }
-        let out = DateFormatter()
-        out.dateFormat = "EEEE d MMMM yyyy"
-        out.locale = Locale(identifier: "fr_CH")
-        let s = out.string(from: d)
-        return s.prefix(1).uppercased() + s.dropFirst()
-    }
-
-    private var dateLabel: String {
-        let dateStr = vm.currentDate
+    private func dateLabel(_ dateStr: String) -> String {
         guard dateStr.count == 8 else { return "—" }
         let fmt = DateFormatter()
         fmt.dateFormat = "yyyyMMdd"
         fmt.locale = Locale(identifier: "fr_CH")
         guard let d = fmt.date(from: dateStr) else { return "—" }
         let disp = DateFormatter()
-        disp.dateFormat = "EEEE d MMMM yyyy"   // "lundi 9 mars 2026"
+        disp.dateFormat = "EEEE d MMMM yyyy"
         disp.locale = Locale(identifier: "fr_CH")
         let s = disp.string(from: d)
         return s.prefix(1).uppercased() + s.dropFirst()
     }
 
-    // Liste plate de tous les articles (pour TabView navigation)
-    private var flatArticles: [ArticleMeta] {
-        vm.sections.flatMap { $0.articles }
-    }
-
-    // Expose le token pour passer à ArticleReaderView
+    private var flatArticles: [ArticleMeta] { vm.sections.flatMap { $0.articles } }
     private var bearerToken: String { vm.bearerToken }
 
     private func centeredMessage(_ msg: String) -> some View {
@@ -498,6 +434,7 @@ struct JournalView: View {
 }
 
 // MARK: - ArticlePreviewSheet
+
 private struct ArticlePreviewSheet: View {
     let meta: ArticleMeta
     let article: ArticleContent?
@@ -510,7 +447,6 @@ private struct ArticlePreviewSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            // Handle bar
             HStack {
                 Spacer()
                 RoundedRectangle(cornerRadius: 2)
@@ -542,11 +478,8 @@ private struct ArticlePreviewSheet: View {
                             .font(.system(.caption, design: .default))
                             .foregroundStyle(dim)
                     }
-
                     Divider().overlay(Color(white: 0.20)).padding(.vertical, 4)
-
                     if let art = article {
-                        // Premiers paragraphes body
                         let preview = art.paragraphs
                             .filter { if case .body = $0.style { return true }; return false }
                             .prefix(3)
@@ -562,13 +495,11 @@ private struct ArticlePreviewSheet: View {
                             .frame(maxWidth: .infinity, alignment: .center)
                             .padding(.vertical, 20)
                     }
-
                     Color.clear.frame(height: 20)
                 }
                 .padding(.horizontal, 20)
             }
 
-            // Bouton Lire
             Button(action: onRead) {
                 Text("Lire l'article")
                     .font(.system(.body, design: .monospaced))
@@ -588,9 +519,8 @@ private struct ArticlePreviewSheet: View {
 }
 
 // MARK: - Encoding fix
+
 private extension String {
-    /// Corrige le double-encoding UTF-8/Latin-1 fréquent dans l'API PressReader.
-    /// Ex: "Â«" (U+00C2 + U+00AB) → "«"
     var fixedEncoding: String {
         guard let latin1 = self.data(using: .isoLatin1),
               let utf8 = String(data: latin1, encoding: .utf8)
