@@ -184,6 +184,7 @@ struct JournalView: View {
     let onDismiss: () -> Void
     let onEditionSelect: (PressReaderEdition) -> Void
 
+    @State private var currentEditionIndex: Int = 0
     @State private var selectedArticle: ArticleContent? = nil
     @State private var selectedArticleIndex: Int = 0
     @State private var loadingArticleId: Int64? = nil
@@ -203,17 +204,15 @@ struct JournalView: View {
     var body: some View {
         ZStack {
             bgColor.ignoresSafeArea()
-
-            switch vm.state {
-            case .idle:    centeredMessage("Connexion en cours…")
-            case .loading: centeredMessage("Chargement du journal…")
-            case .error(let msg): centeredMessage("Erreur : \(msg)")
-            case .ready:   articleList
-            }
+            editionTabView
         }
-        // Swipe L/R sur toute la vue pour naviguer entre éditions
-        .simultaneousGesture(editionSwipeGesture)
-        // Sheet article
+        .safeAreaInset(edge: .top, spacing: 0) {
+            NavBar(
+                title: newspaper.name,
+                subtitle: currentDateLabel,
+                visible: barVisible
+            )
+        }
         .sheet(item: $selectedArticle) { _ in
             ArticleReaderView(
                 allArticles: flatArticles,
@@ -226,7 +225,6 @@ struct JournalView: View {
             )
             .presentationCornerRadius(0)
         }
-        // Sheet aperçu long press
         .sheet(item: $previewMeta) { meta in
             ArticlePreviewSheet(
                 meta: meta,
@@ -234,10 +232,8 @@ struct JournalView: View {
                 onRead: {
                     if let art = previewArticle {
                         let idx = flatArticles.firstIndex(where: { $0.id == meta.id }) ?? 0
-                        previewMeta = nil
-                        previewArticle = nil
-                        selectedArticleIndex = idx
-                        selectedArticle = art
+                        previewMeta = nil; previewArticle = nil
+                        selectedArticleIndex = idx; selectedArticle = art
                     }
                 },
                 onDismiss: { previewMeta = nil; previewArticle = nil }
@@ -247,24 +243,56 @@ struct JournalView: View {
             .preferredColorScheme(.dark)
         }
         .preferredColorScheme(.dark)
+        // Sync TabView index → vm.currentDate quand editions arrive
+        .onChange(of: editions) { _, newEditions in
+            if let idx = newEditions.firstIndex(where: { $0.date == vm.currentDate }) {
+                currentEditionIndex = idx
+            } else if !newEditions.isEmpty {
+                currentEditionIndex = 0
+            }
+        }
     }
 
-    // MARK: - Geste swipe édition (toute la fenêtre)
+    // MARK: - TabView éditions (swipe L/R natif)
 
-    private var editionSwipeGesture: some Gesture {
-        DragGesture(minimumDistance: 40)
-            .onEnded { v in
-                let horiz = abs(v.translation.width) > abs(v.translation.height) * 1.5
-                guard horiz else { return }
-                guard let idx = editions.firstIndex(where: { $0.date == vm.currentDate }) else { return }
-                if v.translation.width < 0 && idx > 0 {
-                    // swipe gauche → édition plus récente (index plus petit)
-                    withAnimation(.easeInOut(duration: 0.22)) { onEditionSelect(editions[idx - 1]) }
-                } else if v.translation.width > 0 && idx + 1 < editions.count {
-                    // swipe droite → édition plus ancienne
-                    withAnimation(.easeInOut(duration: 0.22)) { onEditionSelect(editions[idx + 1]) }
+    private var editionTabView: some View {
+        TabView(selection: $currentEditionIndex) {
+            if editions.isEmpty {
+                // Avant que les éditions arrivent : afficher l'état du vm
+                editionPage(for: nil)
+                    .tag(0)
+            } else {
+                ForEach(Array(editions.enumerated()), id: \.offset) { idx, edition in
+                    editionPage(for: edition)
+                        .tag(idx)
                 }
             }
+        }
+        .tabViewStyle(.page(indexDisplayMode: .never))
+        .ignoresSafeArea()
+        .onChange(of: currentEditionIndex) { _, newIdx in
+            guard !editions.isEmpty, newIdx < editions.count else { return }
+            let edition = editions[newIdx]
+            guard edition.date != vm.currentDate else { return }
+            // Réinitialiser le scroll et la barre pour la nouvelle édition
+            lastScrollY = 0
+            withAnimation(.easeInOut(duration: 0.22)) { barVisible = true }
+            onEditionSelect(edition)
+        }
+    }
+
+    // MARK: - Page d'une édition
+
+    @ViewBuilder
+    private func editionPage(for edition: PressReaderEdition?) -> some View {
+        switch vm.state {
+        case .idle, .loading:
+            centeredMessage("Chargement du journal…")
+        case .error(let msg):
+            centeredMessage("Erreur : \(msg)")
+        case .ready:
+            articleList
+        }
     }
 
     // MARK: - Liste articles
@@ -284,14 +312,6 @@ struct JournalView: View {
                 }
                 Color.clear.frame(height: 32)
             }
-        }
-        // safeAreaInset réserve l'espace ET positionne la barre — pattern le plus fiable en SwiftUI
-        .safeAreaInset(edge: .top, spacing: 0) {
-            NavBar(
-                title: newspaper.name,
-                subtitle: dateLabel(vm.currentDate),
-                visible: barVisible
-            )
         }
         .onScrollGeometryChange(for: CGFloat.self,
             of: { $0.contentOffset.y + $0.contentInsets.top },
@@ -404,6 +424,12 @@ struct JournalView: View {
     }
 
     // MARK: - Helpers
+
+    private var currentDateLabel: String {
+        let dateStr = editions.isEmpty ? vm.currentDate
+            : (currentEditionIndex < editions.count ? editions[currentEditionIndex].date : vm.currentDate)
+        return dateLabel(dateStr)
+    }
 
     private func dateLabel(_ dateStr: String) -> String {
         guard dateStr.count == 8 else { return "—" }
