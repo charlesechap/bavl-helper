@@ -186,7 +186,6 @@ struct ArticleReaderView: View {
                 subtitle: barDateLabel,
                 visible: barVisible
             )
-            .ignoresSafeArea(edges: .top)
         }
         .sheet(isPresented: $showShare) {
             ShareSheet(items: [shareText])
