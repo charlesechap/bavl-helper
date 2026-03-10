@@ -175,11 +175,11 @@ struct ArticleReaderView: View {
     }
 
     var body: some View {
-        ZStack(alignment: .top) {
+        ZStack {
             Color(red: 0.13, green: 0.13, blue: 0.13).ignoresSafeArea()
             articleTabView
-
-            // Barre flottante par-dessus le contenu
+        }
+        .safeAreaInset(edge: .top, spacing: 0) {
             NavBar(
                 title: newspaperName,
                 subtitle: barDateLabel,
@@ -290,8 +290,6 @@ private struct ArticlePageView: View {
                         articleFooter(art)
                     }
                 }
-                // Réserver l'espace pour la NavBar flottante
-                .contentMargins(.top, NavBar.height, for: .scrollContent)
                 .id(scrollResetID)
                 .onScrollGeometryChange(for: CGFloat.self,
                     of: { $0.contentOffset.y + $0.contentInsets.top },

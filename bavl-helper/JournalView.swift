@@ -201,7 +201,7 @@ struct JournalView: View {
     // MARK: body
 
     var body: some View {
-        ZStack(alignment: .top) {
+        ZStack {
             bgColor.ignoresSafeArea()
 
             switch vm.state {
@@ -210,13 +210,6 @@ struct JournalView: View {
             case .error(let msg): centeredMessage("Erreur : \(msg)")
             case .ready:   articleList
             }
-
-            // Barre flottante par-dessus le contenu
-            NavBar(
-                title: newspaper.name,
-                subtitle: dateLabel(vm.currentDate),
-                visible: barVisible
-            )
         }
         // Swipe L/R sur toute la vue pour naviguer entre éditions
         .simultaneousGesture(editionSwipeGesture)
@@ -292,8 +285,14 @@ struct JournalView: View {
                 Color.clear.frame(height: 32)
             }
         }
-        // Réserver l'espace pour la NavBar flottante (barre = 89pt, toujours visible au top)
-        .contentMargins(.top, NavBar.height, for: .scrollContent)
+        // safeAreaInset réserve l'espace ET positionne la barre — pattern le plus fiable en SwiftUI
+        .safeAreaInset(edge: .top, spacing: 0) {
+            NavBar(
+                title: newspaper.name,
+                subtitle: dateLabel(vm.currentDate),
+                visible: barVisible
+            )
+        }
         .onScrollGeometryChange(for: CGFloat.self,
             of: { $0.contentOffset.y + $0.contentInsets.top },
             action: { _, new in
